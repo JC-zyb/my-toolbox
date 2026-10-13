@@ -1,0 +1,6 @@
+{
+  "identifier": "main-capability",
+  "description": "仅主窗口、文件选择和应用自身命令；不暴露任意 Shell 或文件系统",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-save"]
+}
