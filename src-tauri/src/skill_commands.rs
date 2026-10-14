@@ -25,9 +25,13 @@ pub async fn scan_skill_sources(app: AppHandle) -> Result<ScanResult, String> {
 #[tauri::command]
 pub async fn skill_matrix(
     project_path: Option<String>,
+    skill_id: Option<String>,
     app: AppHandle,
 ) -> Result<SkillMatrix, String> {
-    work(app, move |s| s.skill_matrix(project_path.as_deref())).await
+    work(app, move |s| match skill_id {
+        Some(id) => s.skill_matrix_for(project_path.as_deref(), &id),
+        None => s.skill_matrix(project_path.as_deref()),
+    }).await
 }
 #[tauri::command]
 pub async fn preview_batch_skill_operation(

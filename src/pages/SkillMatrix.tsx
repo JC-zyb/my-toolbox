@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { MoreVertical, Power } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, CheckCheck, ChevronRight, FileCode2, FilePenLine, FolderSearch, MoreHorizontal, Power, Trash2, Upload } from "lucide-react";
+import type { SkillActivationQueue } from "../skill-activation";
 import { Empty, Modal } from "../components";
 import { desktop } from "../api";
 import { skillsApi } from "../skills-api";
@@ -40,7 +41,7 @@ export function SkillMatrix({
   onChanged,
   onAction,
   notify,
-  updateToast,
+  activationQueue,
 }: {
   skills: Skill[];
   refreshKey: number;
@@ -55,7 +56,7 @@ export function SkillMatrix({
   onChanged: () => Promise<void>;
   onAction?: (action: "edit" | "export" | "delete", id: string) => void;
   notify: (item: Omit<SkillToastItem, "id">) => string;
-  updateToast: (id: string, patch: Partial<SkillToastItem>) => void;
+  activationQueue: SkillActivationQueue;
 }) {
   const [matrix, setMatrix] = useState<Matrix | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -73,8 +74,17 @@ export function SkillMatrix({
   const [activation, setActivation] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [pending, setPending] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuTrigger = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (event: PointerEvent) => { if (!menuRef.current?.contains(event.target as Node) && !menuTrigger.current?.contains(event.target as Node)) setMenu(null); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { setMenu(null); menuTrigger.current?.focus(); } };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", escape); };
+  }, [menu]);
   useEffect(() => {
     if (!desktop) return;
     let cancelled = false;
@@ -93,9 +103,10 @@ export function SkillMatrix({
       cancelled = true;
     };
   }, [skills, workspace, refreshKey]);
+  const activationUpdates = activationQueue.snapshot();
   const rows = useMemo(
     () =>
-      (matrix?.rows ?? []).filter((row) => {
+      (matrix?.rows ?? []).map(row => ({ ...row, targets: activationQueue.targets(row) })).filter((row) => {
         const skill = skills.find((s) => s.id === row.skillId);
         const ts =
           agent === "all"
@@ -123,7 +134,7 @@ export function SkillMatrix({
               )))
         );
       }),
-    [matrix, skills, workspace, query, source, agent, status, repos],
+    [matrix, skills, workspace, query, source, agent, status, repos, activationQueue, activationUpdates],
   );
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -180,37 +191,14 @@ export function SkillMatrix({
     if (states.every(v => !v)) return "off";
     return "mixed";
   };
-  const toggleActivation = (row: SkillMatrixRow, agentId?: string, requested?: boolean) => void (async () => {
+  const toggleActivation = (row: SkillMatrixRow, agentId?: string, requested?: boolean) => {
     const targets = agentId ? row.targets.filter(t => t.agentId === agentId) : actionable(row);
     const eligible = targets.filter(t => t.capability !== "unsupported" && t.enabled !== null);
     if (!eligible.length) return;
     const desired = requested ?? (agentId ? eligible[0].enabled !== true : switchState(row) !== "on");
     const changes = eligible.map(t => ({ skillId: row.skillId, agentId: t.agentId, enabled: desired }));
-    const key = agentId ? `${row.skillId}:${agentId}` : `${row.skillId}:all`;
-    if (pending.has(key)) return;
-    const previous = matrix;
-    setPending(current => new Set(current).add(key));
-    setMatrix(current => current ? { ...current, rows: current.rows.map(r => r.skillId === row.skillId ? { ...r, targets: r.targets.map(t => changes.find(c => c.agentId === t.agentId) ? { ...t, enabled: desired } : t) } : r) } : current);
-    const toastId = notify({ kind: "pending", title: `${desired ? "正在启用" : "正在关闭"} ${row.name}`, message: agentId ? agents[agentId as keyof typeof agents] : "全部可管理 Agent" });
-    try {
-      const result = await skillsApi.quickActivation({ skillId: row.skillId, changes, projectPath: workspace === "global" ? null : workspace, allowCopy });
-      if (result.requiresConfirmation && result.preview) {
-        setMatrix(previous);
-        setActivation(true);
-        setPreview(result.preview);
-        setResolutions(Object.fromEntries(result.preview.rows.map(r => [r.id, { id: r.id, choice: r.defaultChoice, sourcePath: r.sourcePath }])));
-        updateToast(toastId, { kind: "confirm", title: `${row.name} 需要确认`, message: "存在冲突或外部目录，请查看预览后应用", actionLabel: "查看预览", onAction: () => setPreview(result.preview!) });
-      } else {
-        setMatrix(current => result.delta && current ? { ...current, rows: current.rows.map(r => r.skillId === row.skillId ? { ...r, targets: r.targets.map(t => result.delta!.targets.find(next => next.agentId === t.agentId) ?? t) } : r) } : current);
-        updateToast(toastId, { kind: "success", title: `${row.name} 已${desired ? "启用" : "关闭"}`, message: result.result?.message });
-      }
-    } catch (e) {
-      setMatrix(previous);
-      updateToast(toastId, { kind: "error", title: `${row.name} 操作失败`, message: `${e}` });
-    } finally {
-      setPending(current => { const next = new Set(current); next.delete(key); return next; });
-    }
-  })();
+    activationQueue.set(row, changes);
+  };
   const allVisibleSelected = rows.length > 0 && rows.every(row => selected.includes(row.skillId));
   const someVisibleSelected = rows.some(row => selected.includes(row.skillId));
   const hasWork = preview?.rows.some(
@@ -236,7 +224,7 @@ export function SkillMatrix({
           {d}
         </p>
       ))}
-      <div className="skill-card-toolbar"><span>{rows.length} 个技能</span><button className="button" aria-pressed={multi} onClick={() => { setMulti(!multi); setSelected([]); }}>{multi ? "退出多选" : "多选"}</button></div>
+      <div className="skill-card-toolbar"><span><strong>{rows.length}</strong> 个技能 <span className="skill-toolbar-hint">点击图标管理 Agent</span></span><button className={`button skill-multiselect-button ${multi ? "active" : ""}`} aria-pressed={multi} onClick={() => { setMulti(!multi); setSelected([]); }}><CheckCheck size={15} />{multi ? "退出多选" : "多选"}</button></div>
       {multi && <div className="skill-batch-toolbar">
         <span aria-live="polite">
           显示 {rows.length} 个技能 · 已选 {selected.length} 个
@@ -278,24 +266,30 @@ export function SkillMatrix({
         <details><summary>高级操作</summary><button className="button" disabled={busy || !selected.length} onClick={() => makePreview("remove")}>兼容入口清理预览</button></details>
       </div>}
       <div className="skill-card-grid">
-        {rows.map(row => <article className={`skill-card ${menu === row.skillId ? "menu-open" : ""}`} key={row.skillId}>
+        {rows.map(row => <article className={`skill-card ${switchState(row)} ${menu === row.skillId ? "menu-open" : ""} ${selected.includes(row.skillId) && multi ? "selected" : ""}`} key={row.skillId}>
           {multi ? <input type="checkbox" className="skill-card-select" aria-label={`选择技能 ${row.name}`} disabled={busy} checked={selected.includes(row.skillId)} onChange={() => setSelected(toggle(selected, row.skillId))} /> : <>
-            <button type="button" className="skill-card-more" aria-label={`${row.name} 更多操作`} aria-expanded={menu === row.skillId} onClick={() => setMenu(menu === row.skillId ? null : row.skillId)}><MoreVertical size={17} /></button>
-            {menu === row.skillId && <div className="skill-card-menu" role="menu">
-              <button role="menuitem" onClick={() => { setMenu(null); onDetail(row.skillId); }}>查看完整详情</button>
-              <button role="menuitem" onClick={() => { setMenu(null); toggleActivation(row, undefined, true); }}>启用全部 Agent</button>
-              <button role="menuitem" onClick={() => { setMenu(null); toggleActivation(row, undefined, false); }}>关闭全部 Agent</button>
-              <button role="menuitem" onClick={() => { setMenu(null); setOrigins(row); }}>查看来源与差异</button>
+            <button type="button" className="skill-card-more" aria-label={`${row.name} 更多操作`} aria-haspopup="menu" aria-expanded={menu === row.skillId} ref={menu === row.skillId ? menuTrigger : undefined} onClick={event => { menuTrigger.current = event.currentTarget; setMenu(menu === row.skillId ? null : row.skillId); }} onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); setMenu(row.skillId); requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>("button")?.focus()); } }}><MoreHorizontal size={18} /></button>
+            {menu === row.skillId && <div className="skill-card-menu" role="menu" ref={menuRef} onKeyDown={event => {
+              if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+              event.preventDefault(); const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button")); const index = items.indexOf(document.activeElement as HTMLButtonElement);
+              items[event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+            }}>
+              <span className="skill-menu-caption">{row.name}</span>
+              <button role="menuitem" onClick={() => { setMenu(null); onDetail(row.skillId); }}><FileCode2 size={15} />查看完整详情</button>
+              <button role="menuitem" onClick={() => { setMenu(null); toggleActivation(row, undefined, true); }}><Check size={15} />启用全部 Agent</button>
+              <button role="menuitem" onClick={() => { setMenu(null); toggleActivation(row, undefined, false); }}><Power size={15} />关闭全部 Agent</button>
+              <div className="skill-menu-divider" />
+              <button role="menuitem" onClick={() => { setMenu(null); setOrigins(row); }}><FolderSearch size={15} />查看来源与差异</button>
               {onAction && <>
-                <button role="menuitem" onClick={() => { setMenu(null); onAction("edit", row.skillId); }}>编辑 Skill</button>
-                <button role="menuitem" onClick={() => { setMenu(null); onAction("export", row.skillId); }}>导出 Skill</button>
-                <button role="menuitem" onClick={() => { setMenu(null); onAction("delete", row.skillId); }}>删除中央库 Skill</button>
+                <button role="menuitem" onClick={() => { setMenu(null); onAction("edit", row.skillId); }}><FilePenLine size={15} />编辑 Skill</button>
+                <button role="menuitem" onClick={() => { setMenu(null); onAction("export", row.skillId); }}><Upload size={15} />导出 Skill</button>
+                <div className="skill-menu-divider" /><button role="menuitem" className="skill-menu-danger" onClick={() => { setMenu(null); onAction("delete", row.skillId); }}><Trash2 size={15} />删除中央库 Skill</button>
               </>}
             </div>}
           </>}
-          {!multi && <button type="button" className={`skill-card-switch ${switchState(row)} ${pending.has(`${row.skillId}:all`) ? "pending" : ""}`} disabled={switchState(row) === "disabled" || pending.has(`${row.skillId}:all`)} aria-label={`${row.name} 全部 Agent 启停`} aria-pressed={switchState(row) === "on"} onClick={() => toggleActivation(row)}><Power size={15} /></button>}
+          {!multi && <button type="button" className={`skill-card-switch ${switchState(row)} ${activationQueue.pending(row.skillId) ? "pending" : ""}`} disabled={switchState(row) === "disabled"} aria-label={`${row.name} 全部 Agent 启停`} aria-pressed={switchState(row) === "mixed" ? "mixed" : switchState(row) === "on"} title={switchState(row) === "disabled" ? row.targets.map(target => target.capabilityReason).filter(Boolean).join("；") || "没有可管理的 Agent" : switchState(row) === "on" ? "关闭全部 Agent" : "启用全部 Agent"} onClick={() => toggleActivation(row)}><span className="skill-switch-track"><span className="skill-switch-thumb" /></span></button>}
           <button className="skill-card-open" aria-label={`查看 ${row.name}`} onClick={() => onDetail(row.skillId)}>
-            <strong>{row.name}</strong>
+            <span className="skill-card-heading"><span className="skill-presence-dot" /><strong>{row.name}</strong><ChevronRight size={16} /></span>
             <span className="skill-card-description">{row.description || "查看技能内容与来源"}</span>
           </button>
           <div className="skill-card-flags">
@@ -303,8 +297,8 @@ export function SkillMatrix({
             {row.centralState === "conflict" && <span className="danger-text">版本冲突</span>}
           </div>
           <footer>
-            <span className="skill-source-tag">{skills.find(s => s.id === row.skillId)?.sourceType === "github" ? "GitHub" : row.sources.some(s => s.agentId === "central") ? "本地" : "Agent 独有"}</span>
-            <div className="skill-card-agents">{Object.keys(skillAgents).map(id => { const state = row.targets.find(t => t.agentId === id); const key = `${row.skillId}:${id}`; return state && <SkillAgentIcon key={id} state={state} pending={pending.has(key)} onToggle={() => toggleActivation(row, id)} />; })}</div>
+            <span className="skill-source-tag"><FileCode2 size={12} />{skills.find(s => s.id === row.skillId)?.sourceType === "github" ? "GitHub" : row.sources.some(s => s.agentId === "central") ? "本地" : "Agent 独有"}</span>
+            <div className="skill-card-agents">{Object.keys(skillAgents).map(id => { const state = row.targets.find(t => t.agentId === id); return state && <SkillAgentIcon key={id} state={state} pending={activationQueue.pending(row.skillId, id)} onToggle={() => toggleActivation(row, id)} />; })}</div>
           </footer>
         </article>)}
       </div>
@@ -501,6 +495,7 @@ export function SkillMatrix({
                     setNotice(
                       `${result.message}${result.backupPath ? `；备份：${result.backupPath}` : ""}`,
                     );
+                    notify({ kind: "success", title: "批量操作完成", message: `${result.message}${result.backupPath ? `；备份：${result.backupPath}` : ""}` });
                     await onChanged();
                   })
                 }

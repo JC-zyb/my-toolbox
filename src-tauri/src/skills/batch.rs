@@ -160,13 +160,28 @@ impl SkillsService {
         })
     }
     pub fn skill_matrix(&mut self, project: Option<&str>) -> Result<SkillMatrix> {
-        let scan = self.scan()?;
-        let mut diagnostics = scan.diagnostics;
-        let mut names: BTreeMap<String, String> = scan
-            .skills
-            .iter()
-            .map(|s| (s.id.clone(), s.description.clone()))
-            .collect();
+        self.skill_matrix_inner(project, None)
+    }
+    pub fn skill_matrix_for(&mut self, project: Option<&str>, id: &str) -> Result<SkillMatrix> {
+        validate_name(id)?;
+        self.skill_matrix_inner(project, Some(id))
+    }
+    fn skill_matrix_for_ids(&mut self, project: Option<&str>, ids: &[String]) -> Result<SkillMatrix> {
+        let mut matrix = SkillMatrix { rows: vec![], diagnostics: vec![] };
+        for id in ids.iter().collect::<std::collections::BTreeSet<_>>() {
+            let part = self.skill_matrix_for(project, id)?;
+            matrix.rows.extend(part.rows);
+            matrix.diagnostics.extend(part.diagnostics);
+        }
+        Ok(matrix)
+    }
+    fn skill_matrix_inner(&mut self, project: Option<&str>, only_id: Option<&str>) -> Result<SkillMatrix> {
+        let (mut names, mut diagnostics): (BTreeMap<String, String>, Vec<String>) = if let Some(id) = only_id {
+            (BTreeMap::from([(id.to_string(), String::new())]), Vec::new())
+        } else {
+            let scan = self.scan()?;
+            (scan.skills.into_iter().map(|s| (s.id, s.description)).collect(), scan.diagnostics)
+        };
         let mut folders = vec![(
             "legacy".to_string(),
             self.home.join(".skills-manager/skills"),
@@ -183,6 +198,7 @@ impl SkillsService {
         let mut discovery = folders.clone();
         discovery.push(("central".into(), self.central.clone()));
         for (_, folder) in &discovery {
+            if only_id.is_some() { break; }
             if !folder.is_dir() {
                 continue;
             }
@@ -226,7 +242,7 @@ impl SkillsService {
             }
         }
         let mut rows = vec![];
-        for (id, description) in names {
+        for (id, mut description) in names {
             let central = self.matrix_entry("central", &self.central.join(&id), None, false)?;
             let central_hash = central.content_hash.as_deref();
             let mut sources = vec![];
@@ -251,6 +267,11 @@ impl SkillsService {
                 let entry = self.matrix_entry(agent, &folder.join(&id), central_hash, false)?;
                 if entry.state != "missing" {
                     sources.push(entry);
+                }
+            }
+            if description.is_empty() {
+                if let Some(source) = sources.iter().find(|s| s.content_hash.is_some()) {
+                    description = read_skill(Path::new(&source.target_path))?.description;
                 }
             }
             let hashes: std::collections::BTreeSet<_> = sources
@@ -300,6 +321,10 @@ impl SkillsService {
         &mut self,
         request: BatchSkillRequest,
     ) -> Result<BatchSkillPreview> {
+        let matrix = self.skill_matrix_for_ids(request.project_path.as_deref(), &request.skill_ids)?;
+        self.preview_batch_with_matrix(request, &matrix)
+    }
+    fn preview_batch_with_matrix(&mut self, request: BatchSkillRequest, matrix: &SkillMatrix) -> Result<BatchSkillPreview> {
         if request.skill_ids.is_empty() || request.agent_ids.is_empty() {
             return Err("请选择技能和 Agent".into());
         }
@@ -308,7 +333,6 @@ impl SkillsService {
         {
             return Err("未知批量操作".into());
         }
-        let matrix = self.skill_matrix(request.project_path.as_deref())?;
         let mut rows = vec![];
         let mut fingerprints = BTreeMap::new();
         let mut parents = BTreeMap::new();
@@ -324,6 +348,7 @@ impl SkillsService {
                 .rows
                 .iter()
                 .find(|r| r.skill_id == id)
+                .filter(|r| !r.sources.is_empty())
                 .ok_or("技能已不存在，请重新扫描")?;
             let central = self.central.join(&id);
             let central_exists = exists(&central);
@@ -1104,6 +1129,59 @@ mod tests {
         assert_eq!(state.enabled, Some(false));
         assert!(s.central.join("alpha/SKILL.md").is_file());
         assert!(s.home.join(".skills-manager/skills/alpha/SKILL.md").is_file());
+    }
+    #[test]
+    fn quick_activation_is_scoped_and_preserves_backups() {
+        let (_root, mut s) = fixture();
+        write(&s.central.join("alpha"), "alpha", "one");
+        write(&s.central.join("unrelated"), "unrelated", "must not be scanned");
+        s.conn.execute_batch("CREATE TRIGGER forbid_scan BEFORE INSERT ON skills BEGIN SELECT RAISE(FAIL, 'full-scan-forbidden'); END;").unwrap();
+        let changes = |enabled| ["codex", "claude", "dsh"].into_iter().map(|agent| SkillActivationChange { skill_id: "alpha".into(), agent_id: agent.into(), enabled }).collect();
+        let enabled = s.quick_skill_activation(QuickSkillActivationRequest { skill_id: "alpha".into(), changes: changes(true), project_path: None, allow_copy: false }).unwrap();
+        assert!(!enabled.requires_confirmation);
+        assert!(enabled.delta.unwrap().targets.iter().all(|t| t.enabled == Some(true)));
+        let disabled = s.quick_skill_activation(QuickSkillActivationRequest { skill_id: "alpha".into(), changes: changes(false), project_path: None, allow_copy: false }).unwrap();
+        let delta = disabled.delta.unwrap();
+        assert_eq!(delta.targets.len(), 3);
+        assert!(delta.targets.iter().all(|t| t.enabled == Some(false)));
+        assert!(delta.backup_paths.len() >= 2);
+        assert!(delta.backup_paths.iter().all(|path| exists(Path::new(path))));
+        assert!(s.central.join("alpha/SKILL.md").is_file());
+        assert!(s.stored::<Skill>("skills").unwrap().is_empty());
+        assert!(s.scan().unwrap_err().contains("full-scan-forbidden"));
+    }
+    #[test]
+    fn quick_activation_only_returns_requested_agents_and_rolls_back_on_failure() {
+        let (_root, mut s) = fixture();
+        write(&s.central.join("alpha"), "alpha", "one");
+        let request = |changes| QuickSkillActivationRequest { skill_id: "alpha".into(), changes, project_path: None, allow_copy: false };
+        let change = |agent: &str, enabled| SkillActivationChange { skill_id: "alpha".into(), agent_id: agent.into(), enabled };
+        let result = s.quick_skill_activation(request(vec![change("claude", true)])).unwrap();
+        assert_eq!(result.delta.unwrap().targets.iter().map(|t| t.agent_id.as_str()).collect::<Vec<_>>(), vec!["claude"]);
+        s.conn.execute_batch("CREATE TRIGGER fail_quick BEFORE INSERT ON skill_targets WHEN NEW.agent_id='dsh' BEGIN SELECT RAISE(FAIL, 'quick-failure'); END;").unwrap();
+        let error = s.quick_skill_activation(request(vec![change("codex", false), change("dsh", true)])).unwrap_err();
+        assert!(error.contains("quick-failure"));
+        assert!(!s.home.join(".codex/config.toml").exists());
+        assert!(!exists(&s.home.join(".dsh/skills/alpha")));
+        assert!(exists(&s.home.join(".claude/skills/alpha")));
+        assert_eq!(s.stored::<SkillTarget>("skill_targets").unwrap().len(), 1);
+    }
+    #[test]
+    fn quick_activation_requires_confirmation_for_external_content_and_import() {
+        let (_root, mut s) = fixture();
+        write(&s.central.join("alpha"), "alpha", "one");
+        let external = s.home.join(".claude/skills/alpha");
+        write(&external, "alpha", "different");
+        let request = |id: &str, agent: &str, enabled| QuickSkillActivationRequest { skill_id: id.into(), changes: vec![SkillActivationChange { skill_id: id.into(), agent_id: agent.into(), enabled }], project_path: None, allow_copy: false };
+        let result = s.quick_skill_activation(request("alpha", "claude", false)).unwrap();
+        assert!(result.requires_confirmation);
+        assert!(result.delta.is_none());
+        assert!(fs::read_to_string(external.join("SKILL.md")).unwrap().contains("different"));
+        write(&s.home.join(".dsh/skills/unique"), "unique", "agent only");
+        let result = s.quick_skill_activation(request("unique", "claude", true)).unwrap();
+        assert!(result.requires_confirmation);
+        assert!(!s.central.join("unique").exists());
+        assert!(result.preview.unwrap().preview.rows.iter().any(|r| r.action == "import"));
     }
     #[test]
     fn codex_activation_rejects_changed_or_contradictory_config() {

@@ -25,6 +25,7 @@ import type {
   SkillRepository,
   SkillScan,
   SkillTarget,
+  SkillActivationPreview,
   SyncPreview,
 } from "../types";
 import "./skills.css";
@@ -32,6 +33,8 @@ import { SkillMatrix } from "./SkillMatrix";
 import { SkillDetail } from "./SkillDetail";
 import { SkillOperationToast } from "./SkillOperationToast";
 import type { SkillToastItem } from "./SkillOperationToast";
+import { useSkillActivation } from "./useSkillActivation";
+import { SkillActivationDialog } from "./SkillActivationDialog";
 
 const agents: Record<string, string> = {
   codex: "Codex",
@@ -163,7 +166,11 @@ export function Skills() {
   const updateToast = useCallback((id: string, patch: Partial<SkillToastItem>) => {
     setToasts((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
     if (patch.kind === "success") window.setTimeout(() => dismissToast(id), 3000);
-  }, []);
+  }, [dismissToast]);
+  const [activationPreview, setActivationPreview] = useState<SkillActivationPreview | null>(null);
+  const activation = useSkillActivation(workspace === "global" ? null : workspace, allowCopy, notify, updateToast, setActivationPreview);
+  const activationRef = useRef(activation);
+  activationRef.current = activation;
   useEffect(() => {
     if (palette) {
       setSelected(null);
@@ -184,6 +191,7 @@ export function Skills() {
   }, []);
   const load = useCallback(async () => {
     const result = await skillsApi.scan();
+    activationRef.current.clear();
     setScan(result);
     setMatrixRefreshKey((value) => value + 1);
     setRepos(await skillsApi.repositories());
@@ -488,6 +496,7 @@ export function Skills() {
             </select>
           </div>
           <SkillMatrix
+            activationQueue={activation}
             skills={scan?.skills ?? []}
             refreshKey={matrixRefreshKey}
             workspace={workspace}
@@ -500,7 +509,6 @@ export function Skills() {
             onDetail={(id) => void run(() => detail(id))}
             onChanged={load}
             notify={notify}
-            updateToast={updateToast}
             onAction={(action, id) => {
               const current = scan?.skills.find((skill) => skill.id === id);
               if (!current) return;
@@ -527,7 +535,7 @@ export function Skills() {
         </Panel>
       </div>
       </div>
-        {selected && <SkillDetail skill={selected} workspace={workspace} allowCopy={allowCopy} notify={notify} updateToast={updateToast} onBack={() => { void load(); setSelected(null); useStore.setState({ selectedSkillId: null }); requestAnimationFrame(() => window.scrollTo(0, libraryScroll.current)); }} onChanged={async () => { await load(); await detail(selected.id); }} actions={<>
+        {selected && <SkillDetail skill={selected} workspace={workspace} allowCopy={allowCopy} activationQueue={activation} onBack={() => { setSelected(null); useStore.setState({ selectedSkillId: null }); requestAnimationFrame(() => window.scrollTo(0, libraryScroll.current)); }} actions={<>
           <button className="button" disabled={busy || !scan?.skills.some(s => s.id === selected.id)} onClick={() => { setEditing(selected); setEditorName(selected.name); setDocument(selected.document); setModal("editor"); }}>编辑</button>
           <button className="button" disabled={busy || !scan?.skills.some(s => s.id === selected.id)} onClick={() => void run(async () => { const p = await chooseFile(true); if (p) { const r = await command<{ message: string }>("export_skill", { id: selected.id, destination: p[0] }); setNotice(r.message); } })}>导出</button>
           <button className="button danger" disabled={busy || !scan?.skills.some(s => s.id === selected.id)} onClick={() => { setPermanent(false); setDeleteName(""); setModal("delete"); }}>删除</button>
@@ -642,6 +650,7 @@ export function Skills() {
             </div>
         </SkillDetail>}
       <SkillOperationToast items={toasts} onDismiss={dismissToast} />
+      <SkillActivationDialog preview={activationPreview} onClose={() => setActivationPreview(null)} notify={notify} onApplied={async () => { activation.clear(); await load(); if (selected) await detail(selected.id); }} />
       <Modal
         error={error}
         open={!!preview}

@@ -66,7 +66,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .map_err(|e| e.to_string())?
                 }
                 "list_skills" | "scan_skill_sources" => json!(service.scan()?),
-                "skill_matrix" => json!(service.skill_matrix(args["projectPath"].as_str())?),
+                "skill_matrix" => json!(match args["skillId"].as_str() {
+                    Some(id) => service.skill_matrix_for(args["projectPath"].as_str(), id)?,
+                    None => service.skill_matrix(args["projectPath"].as_str())?,
+                }),
                 "preview_batch_skill_operation" | "remove_agent_skill_entries" => {
                     let r: BatchSkillRequest = serde_json::from_value(args["request"].clone())
                         .map_err(|e| e.to_string())?;

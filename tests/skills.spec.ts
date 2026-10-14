@@ -103,7 +103,7 @@ test("迁移冲突预览、确认备份及列表筛选", async ({ page }) => {
   await dialog.getByRole("button", { name: "备份并迁移" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(
-    page.getByRole("status").filter({ hasText: "已迁移" }),
+    page.locator(".skill-toast").filter({ hasText: "已迁移" }),
   ).toBeVisible();
   expect(
     readFileSync(
@@ -283,4 +283,75 @@ test("Agent 独有技能经确认导入；外部目录关闭保留备份", async
   await expect(confirm).toHaveCount(0);
   expect(existsSync(origin)).toBe(false);
   expect(existsSync(join(root, "home/.agents/skills/external/SKILL.md"))).toBe(true);
+});
+
+test("连续点击保留最后意图，详情和卡片同步且不触发全量扫描", async ({ page }, testInfo) => {
+  await page.getByRole("dialog").getByRole("button", { name: "暂不迁移" }).click();
+  const card = page.locator(".skill-card").filter({ hasText: "ui-kit" });
+  await expect(card.getByLabel("Claude Code · 已关闭")).toBeVisible();
+  // 只延迟真实 Rust 请求，不替换任何成功或失败结果。
+  await page.evaluate(() => {
+    const bridge = window as unknown as { __TAURI_INTERNALS__: { invoke: (name: string, args: Record<string, unknown>) => Promise<unknown> }; activationCalls: { name: string; args: Record<string, unknown> }[] };
+    const invoke = bridge.__TAURI_INTERNALS__.invoke;
+    bridge.activationCalls = [];
+    bridge.__TAURI_INTERNALS__.invoke = async (name, args) => {
+      bridge.activationCalls.push({ name, args });
+      if (name === "quick_skill_activation") await new Promise(resolve => setTimeout(resolve, 800));
+      return invoke(name, args);
+    };
+  });
+  const agent = card.getByRole("button", { name: /^Claude Code/ });
+  await agent.click();
+  await expect(agent).toHaveAttribute("aria-pressed", "true");
+  await expect(agent).toBeEnabled();
+  await agent.click(); await agent.click(); await agent.click();
+  await expect(agent).toHaveAttribute("aria-pressed", "false");
+  await card.getByRole("button", { name: "查看 ui-kit" }).click();
+  const detail = page.getByRole("region", { name: "ui-kit 详情" });
+  await expect(detail.getByRole("checkbox", { name: "启用 Claude Code" })).not.toBeChecked();
+  await expect(detail.getByRole("checkbox", { name: "启用 Claude Code" })).toBeEnabled();
+  await detail.getByRole("button", { name: "返回技能库" }).click();
+  await expect(page.locator(".skill-toast.success")).toContainText("ui-kit 已关闭");
+  await expect.poll(() => existsSync(join(root, "home/.claude/skills/ui-kit"))).toBe(false);
+  const calls = await page.evaluate(() => (window as unknown as { activationCalls: { name: string; args: Record<string, unknown> }[] }).activationCalls);
+  expect(calls.filter(call => call.name === "quick_skill_activation")).toHaveLength(2);
+  expect(calls.filter(call => ["scan_skill_sources", "list_skills"].includes(call.name))).toHaveLength(0);
+  expect(calls.filter(call => call.name === "skill_matrix").every(call => call.args.skillId === "ui-kit")).toBe(true);
+  await card.getByRole("button", { name: "ui-kit 更多操作" }).focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(card.getByRole("menuitem", { name: "查看完整详情" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(card.getByRole("menu")).toHaveCount(0);
+  await page.getByRole("button", { name: "多选", exact: true }).click();
+  await page.getByRole("checkbox", { name: "选择技能 ui-kit" }).check();
+  await expect(page.getByRole("checkbox", { name: "全选当前结果" })).toHaveJSProperty("indeterminate", true);
+  await page.getByRole("checkbox", { name: "全选当前结果" }).check();
+  await expect(page.getByRole("checkbox", { name: "选择技能 code-review" })).toBeChecked();
+  await page.getByRole("button", { name: "退出多选" }).click();
+  await page.screenshot({ path: testInfo.outputPath("skills-light.png"), fullPage: true });
+  await page.getByRole("button", { name: "切换深色主题" }).click();
+  await page.screenshot({ path: testInfo.outputPath("skills-dark.png"), fullPage: true });
+});
+
+test("总开关一次提交三个 Agent，真实配置失败会局部回滚", async ({ page }) => {
+  await page.getByRole("dialog").getByRole("button", { name: "暂不迁移" }).click();
+  const card = page.locator(".skill-card").filter({ hasText: "ui-kit" });
+  const toggle = card.getByRole("button", { name: "ui-kit 全部 Agent 启停" });
+  await expect(toggle).toHaveAttribute("aria-pressed", "mixed");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".skill-toast.success")).toContainText("ui-kit 已启用");
+  await expect(card.getByLabel("DSH · 已启用")).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".skill-toast.success").filter({ hasText: "ui-kit 已关闭" })).toBeVisible();
+  mkdirSync(join(root, "home/.codex"), { recursive: true });
+  writeFileSync(join(root, "home/.codex/config.toml"), "[[skills.config]]\npath = 123\n");
+  await card.getByRole("button", { name: "Codex · 已关闭" }).click();
+  await expect(page.locator(".skill-toast.error")).toContainText("缺少字符串 path");
+  await expect(card.getByRole("button", { name: "Codex · 已关闭" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Claude Code · 已关闭" })).toBeVisible();
+  const toast = page.locator(".skill-toast.error");
+  await toast.getByRole("button", { name: /关闭通知/ }).click();
+  await expect(toast).toHaveCount(0);
 });

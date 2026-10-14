@@ -98,6 +98,7 @@ impl SkillsService {
         if request.changes.is_empty() || request.changes.iter().any(|c| c.skill_id != request.skill_id) {
             return Err("快速启停请求中的技能不一致".into());
         }
+        let agents: BTreeSet<_> = request.changes.iter().map(|c| c.agent_id.clone()).collect();
         let preview = self.preview_skill_activation(SkillActivationRequest {
             changes: request.changes,
             project_path: request.project_path.clone(),
@@ -111,10 +112,10 @@ impl SkillsService {
         }).collect::<Vec<_>>();
         let restart_required = preview.restart_required;
         let result = self.apply_skill_activation(&preview.preview.id, &resolutions)?;
-        let matrix = self.skill_matrix(request.project_path.as_deref())?;
+        let matrix = self.skill_matrix_for(request.project_path.as_deref(), &request.skill_id)?;
         let targets = matrix.rows.iter().find(|row| row.skill_id == request.skill_id)
-            .map(|row| row.targets.clone()).unwrap_or_default();
-        let backup_paths = result.backup_path.clone().into_iter().collect();
+            .map(|row| row.targets.iter().filter(|t| agents.contains(&t.agent_id)).cloned().collect()).unwrap_or_default();
+        let backup_paths = result.backup_path.as_deref().map(|paths| paths.lines().map(str::to_string).collect()).unwrap_or_default();
         Ok(QuickSkillActivationResult {
             requires_confirmation: false,
             preview: None,
@@ -125,7 +126,7 @@ impl SkillsService {
     pub fn get_discovered_skill(&mut self, id: &str, project: Option<&str>) -> Result<Skill> {
         validate_name(id)?;
         if exists(&self.central.join(id)) { return self.get(id); }
-        let matrix = self.skill_matrix(project)?;
+        let matrix = self.skill_matrix_for(project, id)?;
         let row = matrix.rows.iter().find(|r| r.skill_id == id).ok_or("技能已不存在")?;
         let path = row.sources.iter().find(|s| s.content_hash.is_some()).ok_or("没有可读的技能内容")?;
         read_skill(Path::new(&path.target_path))
@@ -149,7 +150,7 @@ impl SkillsService {
             match &config {
                 Ok((_, _, doc)) => {
                     let entries = config_entries(doc)?;
-                    state.enabled = Some(!paths.is_empty() && paths.iter().all(|path| {
+                    state.enabled = Some(paths.iter().any(|path| {
                         entries.iter().find(|(p, _)| config_path_key(Path::new(p)) == config_path_key(path))
                             .map(|(_, enabled)| enabled.unwrap_or(true)).unwrap_or(true)
                     }));
@@ -196,20 +197,21 @@ impl SkillsService {
         let mut requires_confirmation = false;
         let mut restart_required = false;
         let mut seen = BTreeSet::new();
+        let ids = request.changes.iter().map(|c| c.skill_id.clone()).collect::<Vec<_>>();
+        let matrix = self.skill_matrix_for_ids(request.project_path.as_deref(), &ids)?;
         for change in &request.changes {
             validate_name(&change.skill_id)?;
             if !["codex", "claude", "dsh"].contains(&change.agent_id.as_str()) { return Err("未知 Agent".into()); }
             if !seen.insert((change.skill_id.clone(), change.agent_id.clone())) { return Err("同一技能与 Agent 只能提交一次".into()); }
             let global_codex = change.agent_id == "codex" && request.project_path.is_none();
-            let matrix = self.skill_matrix(request.project_path.as_deref())?;
             let discovered = matrix.rows.iter().find(|r| r.skill_id == change.skill_id).ok_or("技能已不存在")?;
             let state = discovered.targets.iter().find(|s| s.agent_id == change.agent_id).ok_or("未知 Agent")?;
             if let Some(error) = &state.error { return Err(error.clone()); }
             let action = if global_codex || change.enabled { "import-and-install" } else { "remove" };
-            let mut batch = self.preview_batch_skill_operation(BatchSkillRequest {
+            let mut batch = self.preview_batch_with_matrix(BatchSkillRequest {
                 skill_ids: vec![change.skill_id.clone()], agent_ids: vec![change.agent_id.clone()],
                 project_path: request.project_path.clone(), action: action.into(), conflict_policy: "keep-target".into(), allow_copy: request.allow_copy,
-            })?;
+            }, &matrix)?;
             let saved = self.batch_plans.remove(&batch.id).ok_or("启停预览生成失败")?;
             for (p, f) in saved.fingerprints { all_fingerprints.insert(p, f); }
             for (p, f) in saved.parents { all_parents.insert(p, f); }

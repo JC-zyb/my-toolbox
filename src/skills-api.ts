@@ -18,8 +18,8 @@ import type {
   QuickSkillActivationResult,
 } from "./types";
 export const skillsApi = {
-  matrix: (projectPath: string | null) =>
-    command<SkillMatrix>("skill_matrix", { projectPath }),
+  matrix: (projectPath: string | null, skillId: string | null = null) =>
+    command<SkillMatrix>("skill_matrix", { projectPath, skillId }),
   batchPreview: (request: BatchSkillRequest) =>
     command<BatchSkillPreview>(
       request.action === "remove"
