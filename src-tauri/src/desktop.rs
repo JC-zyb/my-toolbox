@@ -1,4 +1,5 @@
 use crate::skill_commands::*;
+use crate::local_tool_commands::*;
 use crate::{
     collection,
     models::{Settings, Snapshot},
@@ -19,6 +20,7 @@ pub(crate) struct AppState {
     collection_lock: Arc<Mutex<()>>,
     rename_plans: Mutex<std::collections::HashMap<String, Vec<RenameRow>>>,
     pub(crate) skills: Mutex<SkillsService>,
+    pub(crate) local_tools: Arc<crate::local_tools::LocalToolsService>,
 }
 #[tauri::command]
 fn get_settings(state: State<AppState>) -> Result<Settings, String> {
@@ -186,6 +188,10 @@ pub fn run() {
             let directory = app.path().app_local_data_dir()?;
             std::fs::create_dir_all(&directory)?;
             app.manage(AppState {
+                local_tools: Arc::new(crate::local_tools::LocalToolsService::new(
+                    directory.join("local-tools"),
+                    PathBuf::from(std::env::var("USERPROFILE").or_else(|_|std::env::var("HOME")).map_err(std::io::Error::other)?),
+                ).map_err(std::io::Error::other)?),
                 directory,
                 collection_lock: Arc::new(Mutex::new(())),
                 rename_plans: Mutex::new(std::collections::HashMap::new()),
@@ -248,6 +254,18 @@ pub fn run() {
             rename_preview,
             rename_apply,
             run_script,
+            list_local_tools,
+            scan_local_tools,
+            search_local_tools,
+            add_local_tool,
+            refresh_local_tool_metadata,
+            local_tool_versions,
+            local_tool_project,
+            preview_local_tool_operation,
+            execute_local_tool_operation,
+            list_local_tool_operations,
+            set_local_tool_directories,
+            check_local_tool_updates,
             list_skills,
             get_skill,
             get_discovered_skill,

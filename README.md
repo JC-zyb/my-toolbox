@@ -22,6 +22,7 @@ npm run desktop
 - 会话：搜索、模型筛选、分页、CSV、元数据与用量详情。
 - Skills：中央库卡片浏览、完整详情与 Agent 即时启停、批量操作、Agent 独有技能导入、新建/编辑、本地与 GitHub 导入、全局/项目分发预览、差异与冲突处理、迁移备份、更新提示与导出。
 - 工具：快速入口登记、批量改名预览/冲突检查/确认执行、脚本登记/确认执行/超时/输出。
+- 本地工具：本机扫描、多份安装与来源识别、GitHub 资料搜索和补全、管理器更新查询、安装升级卸载预览、多版本默认值和项目版本固定、后台任务与日志。
 - 系统：本地持久化设置、自动采集、命令面板、键盘导航、托盘和单实例。
 
 ## 数据边界
@@ -56,6 +57,18 @@ npm run desktop
 
 GitHub 导入支持 HTTPS 仓库 URL 与 branch/tag/commit，浏览有效 Skill 后选择导入。Git 必须可用；网络、认证及格式错误直接显示。仓库 checkout 与来源 commit 保存在应用数据目录，更新检查只提示，不覆盖中央库。自动检查仅在 Skills 页面打开期间每小时运行。默认拒绝同名不同内容的导入与 Skill 内部链接；不会读取链接指向的库外文件。Skills 命令面板支持技能搜索、导入仓库、项目工作区与当前技能分发预览。
 
+## 本地工具使用
+
+从侧栏“工具 → 本地工具”进入，首次自动扫描，之后手动刷新。内置 Node、fnm、uv、Python、Git、pnpm、Bun、Deno、Java、Maven、Rust、rustup、Cargo、mise。检查 PATH、管理器目录与手动添加的目录；Windows 还只读检查注册表 PATH 和安装目录。额外目录不递归遍历。每份安装分别展示路径、版本、来源证据和工具箱当前解析状态。
+
+“添加工具”支持名称及 GitHub 仓库地址。添加仅登记资料，安装须另行预览确认；未知 GitHub 项目没有包映射，不能直接执行安装。资料保存在应用数据目录 `local-tools/tools.sqlite`，联网失败保留旧资料并显示错误。GitHub 最新发布与管理器的可安装版本独立；“可更新”默认提示同一主版本系列内的更新，跨主版本从详情选择。
+
+Windows 使用已安装的 WinGet/Scoop，macOS/Linux 使用已有 Homebrew；Node 使用 fnm，Python 使用 uv，Rust/Cargo 使用 rustup，Java/Bun/Deno/pnpm/Maven 使用 mise。Cargo 安装的 fnm 和独立安装器安装的 uv 按收据识别。工具箱不自动安装管理器或迁移工具；缺少管理器时可查看官方安装与初始化指引。未核实来源的现有工具只提供资料和目录查看，不猜测升级/卸载后端。WinGet 仅凭清单不能证明已有安装来源，工具箱自己的成功安装记录须结合前后文件变化核实。Scoop 全局安装暂不接管；Linux apt/dnf/pacman 不接管。
+
+安装、升级、卸载、默认值和项目修改均先生成后端预览，确认只提交计划 ID。管理器任务串行执行，页面关闭后继续，应用退出后的未完成任务标为中断。日志和操作记录保存在 `local-tools/`，标准输出和错误各限制 1 MiB；成功要求退出码和执行后探测均通过。第三方安装不具备统一回滚事务，失败后重新扫描并报告真实状态。fnm/uv/mise 的版本升级安装所选新版本、保留旧版本，默认值另行设置。
+
+项目固定仅写版本声明，不运行项目任务、hook 或脚本。Node 保留既有 `.node-version`/`.nvmrc`，冲突阻止写入；Python 使用 `.python-version`；Rust 保留旧工具链文件格式；mise 保留已识别配置和无关字段。执行前复核预览内容，在相邻 `.toolbox-backup-*` 文件保存备份。复杂或冲突配置要求人工处理。工具箱当前解析版本、管理器默认值、项目声明分别展示；Rust 额外查询当前进程的实际工具链及环境覆盖。其他项目的实际生效结果标为未核实。不会自动写 PATH、shell 配置，默认值也不会改变已经打开的终端或替换系统 Python。
+
 ## 验证
 
 ```text
@@ -70,3 +83,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 界面验收使用已安装的 Microsoft Edge。覆盖 1280×720、1440×900、1920×1080 和缩放等效尺寸；Windows 实际 DPI、多屏及安装包仍需人工验收。截图保存在 `test-results/`，不会提交。
 
 Skills UI 测试使用 `skills-fixture` 进程和新建系统临时目录，直接调用真实 Rust 核心，断言迁移、分发和创建后的文件结果。该桥仅供测试，不接入生产应用，也不操作真实用户库。
+
+本地工具 UI 测试使用 `local-tools-fixture` 与临时目录，覆盖扫描、资料补全、安装、默认值、更新、失败日志、配置预览、过期保护和备份。进程替身仅用于隔离管理器；SQLite、HTTP 资料请求和项目文件修改调用真实 Rust 服务。`inspect-local-tools` 只读探测本机并将诊断缓存写入新临时目录；`local-tools-smoke <新建系统临时子目录> <真实 fnm 绝对路径>` 在隔离 FNM_DIR 中真实安装 Node、设置默认值和固定项目，保留沙箱供检查。
+
+`.github/workflows/local-tools.yml` 配置 Windows、macOS、Linux 的构建、核心测试、隔离 UI 和真实 fnm 闭环。当前本机仅完成 Windows 真实发现和 fnm 安装闭环；macOS/Linux 仍待 CI 实跑，不能用输出样例测试视为平台验收。WinGet/Scoop/Homebrew/uv/rustup/mise 的实际安装操作还需分别在隔离平台验证。

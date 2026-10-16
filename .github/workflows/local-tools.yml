@@ -1,0 +1,61 @@
+name: Local tools
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux desktop prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npm run verify-notes
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --no-default-features
+      - run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: Install UI browser
+        run: npx playwright install --with-deps chromium
+      - name: Isolated UI tests
+        run: npx playwright test tests/local-tools.spec.ts
+        env:
+          TOOLBOX_TEST_BROWSER: chromium
+      - name: Download isolated fnm
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Windows) asset=fnm-windows.zip ;;
+            macOS) asset=fnm-macos.zip ;;
+            Linux) asset=fnm-linux.zip ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/toolbox-fnm"
+          curl --fail --location --retry 2 "https://github.com/Schniz/fnm/releases/download/v1.39.0/$asset" --output "$RUNNER_TEMP/toolbox-fnm.zip"
+          unzip "$RUNNER_TEMP/toolbox-fnm.zip" -d "$RUNNER_TEMP/toolbox-fnm"
+          chmod +x "$RUNNER_TEMP/toolbox-fnm/"* || exit 1
+      - name: Real manager smoke
+        shell: pwsh
+        run: |
+          $suffix = if ($IsWindows) { '.exe' } else { '' }
+          $fnm = Join-Path $env:RUNNER_TEMP "toolbox-fnm/fnm$suffix"
+          $sandbox = Join-Path ([System.IO.Path]::GetTempPath()) "toolbox-smoke-$([Guid]::NewGuid())"
+          cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --bin local-tools-smoke -- $sandbox $fnm
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: local-tools-${{ runner.os }}
+          path: test-results/

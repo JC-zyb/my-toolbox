@@ -5,7 +5,7 @@ export default defineConfig({
   timeout: 60000,
   use: {
     baseURL: "http://127.0.0.1:1421",
-    channel: "msedge",
+    channel: process.env.TOOLBOX_TEST_BROWSER === "chromium" ? undefined : "msedge",
     headless: true,
     reducedMotion: "reduce",
   },

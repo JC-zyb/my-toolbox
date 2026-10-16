@@ -32,6 +32,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Agents } from "./pages/Agents";
 import { Sessions, SessionDetail } from "./pages/Sessions";
 import { Skills } from "./pages/Skills";
+import { LocalTools } from "./pages/LocalTools";
 import { skillsApi } from "./skills-api";
 import { useStore } from "./store";
 import { bounds, dateTime, filterRecords } from "./stats";
@@ -62,6 +63,7 @@ const navigation: {
   {
     group: "工具",
     items: [
+      { id: "local-tools", label: "本地工具", icon: Terminal },
       { id: "launchers", label: "快速入口", icon: Zap, key: "4" },
       { id: "rename", label: "批量改名", icon: Wand2 },
       { id: "scripts", label: "脚本", icon: FileCode2 },
@@ -133,6 +135,7 @@ export default function App() {
           window.dispatchEvent(
             new CustomEvent("skills-action", { detail: { action: "refresh" } }),
           );
+        else if (useStore.getState().page === "local-tools") window.dispatchEvent(new Event("local-tools-refresh"));
         else void useStore.getState().refresh();
       }
       const page = (
@@ -275,7 +278,7 @@ export default function App() {
             <strong>{title}</strong>
           </div>
           <div className="top-controls">
-            {page !== "skills" && (
+            {page !== "skills" && page !== "local-tools" && (
               <>
                 <div className="segmented range-selector">
                   {[
@@ -325,7 +328,7 @@ export default function App() {
                         detail: { action: "refresh" },
                       }),
                     )
-                  : void state.refresh()
+                  : page === "local-tools" ? window.dispatchEvent(new Event("local-tools-refresh")) : void state.refresh()
               }
             >
               <RefreshCw size={17} />
@@ -346,7 +349,7 @@ export default function App() {
             </button>
           </div>
         </header>
-        {range === "custom" && page !== "skills" && (
+        {range === "custom" && page !== "skills" && page !== "local-tools" && (
           <div className="custom-range">
             <label>
               开始日期
@@ -408,6 +411,8 @@ export default function App() {
             <Sessions {...shared} />
           ) : page === "skills" ? (
             <Skills />
+          ) : page === "local-tools" ? (
+            <LocalTools />
           ) : page === "sources" ? (
             <Sources perform={perform} />
           ) : page === "settings" ? (

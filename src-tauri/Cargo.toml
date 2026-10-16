@@ -22,6 +22,18 @@ path = "src/bin/inspect_usage.rs"
 name = "skills-fixture"
 path = "src/bin/skills_fixture.rs"
 
+[[bin]]
+name = "local-tools-fixture"
+path = "src/bin/local_tools_fixture.rs"
+
+[[bin]]
+name = "inspect-local-tools"
+path = "src/bin/inspect_local_tools.rs"
+
+[[bin]]
+name = "local-tools-smoke"
+path = "src/bin/local_tools_smoke.rs"
+
 [features]
 default = ["desktop"]
 custom-protocol = ["tauri/custom-protocol"]
@@ -41,6 +53,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 walkdir = "2"
 uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "rt-multi-thread", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 tauri = { version = "2", features = ["tray-icon"], optional = true }
 tauri-plugin-dialog = { version = "2", optional = true }
 tauri-plugin-opener = { version = "2", optional = true }
