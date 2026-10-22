@@ -1,4 +1,5 @@
 use crate::skill_commands::*;
+use crate::environment_commands::*;
 use crate::local_tool_commands::*;
 use crate::news_commands::*;
 use crate::{
@@ -246,6 +247,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            get_environment_variables,
+            change_environment_variable,
             get_settings,
             get_agent_news,
             refresh_agent_news,

@@ -58,6 +58,16 @@ npm run desktop
 
 GitHub 导入支持 HTTPS 仓库 URL 与 branch/tag/commit，浏览有效 Skill 后选择导入。Git 必须可用；网络、认证及格式错误直接显示。仓库 checkout 与来源 commit 保存在应用数据目录，更新检查只提示，不覆盖中央库。自动检查仅在 Skills 页面打开期间每小时运行。默认拒绝同名不同内容的导入与 Skill 内部链接；不会读取链接指向的库外文件。Skills 命令面板支持技能搜索、导入仓库、项目工作区与当前技能分发预览。
 
+## 环境变量
+
+从侧栏“系统 → 环境变量”进入，支持 Windows 桌面版的用户变量与系统变量搜索、新增、修改和确认删除。直接读取持久化注册表中的原始值，保留 `%JAVA_HOME%` 等引用及 `REG_SZ` / `REG_EXPAND_SZ` 类型；Path 可在原始值和每行一个路径之间切换，保留顺序、空条目和尾分号。空值保存为空字符串，删除使用单独确认。
+
+变量列表突出名称与类型；Path 按原始顺序分行编号，前三项之外可展开，空条目有明确标识。可展开字符串的 `%变量名%` 引用单独高亮，普通长值支持查看完整内容；展示拆分不会改变保存值。窄窗口使用纵向布局，编辑框显示路径条目数或字符数。
+
+系统变量按当前进程的注册表写入权限显示可编辑或只读，不自动提权；需要时关闭工具箱后以管理员身份重新启动。保存前核对原值版本，外部修改或同名变量已存在时拒绝覆盖并提示刷新。保存后广播环境变更通知，通知失败会显示“已保存，但通知未完成”；已运行的终端、开发工具和工具箱自身需要重新启动才能使用新环境。
+
+浏览器、macOS 与 Linux 暂不支持此编辑功能。环境变量值不写入工具箱配置或日志。开发测试使用独立注册表键和隔离页面，不修改真实用户或系统环境变量。实现思路参考 [PowerToys 环境变量模块](https://github.com/microsoft/PowerToys/blob/main/doc/devdocs/modules/environmentvariables.md)，边界与取舍见[环境变量决策笔记](.agents/notes/implemented/feature/2026-10-22-environment-variables.md)。
+
 ## Agent 资讯
 
 从侧栏“工作台 → Agent 资讯”进入。内置 32 个 RSS / Atom 来源，覆盖通用与办公 Agent、编程 Agent、Agent 框架、工作流平台、模型生态、协议及中文资讯。例如 OpenHands、OpenClaw、DeerFlow、Gemini CLI、Cline、OpenCode、CrewAI、AutoGen、Qwen-Agent、AgentScope、Dify、Coze、n8n、A2A，以及原有 Codex、Claude Code、LangGraph 等；模型消息来自 OpenAI、DeepMind、Hugging Face，中文消息来自量子位、IT之家和 InfoQ 中文。综合科技订阅按 AI / Agent 标题关键词过滤，也可收录闭源产品的媒体报道。有限来源不等于穷尽全部 Agent，来源更新时间和覆盖范围由发布者决定。

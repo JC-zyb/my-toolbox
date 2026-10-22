@@ -1,4 +1,7 @@
 pub mod collection;
+pub mod environment;
+#[cfg(feature = "desktop")]
+mod environment_commands;
 #[cfg(feature = "desktop")]
 pub mod desktop;
 pub mod models;

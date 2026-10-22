@@ -5,6 +5,7 @@ export type Page =
   | "skills"
   | "agent-news"
   | "local-tools"
+  | "environment"
   | "launchers"
   | "rename"
   | "scripts"

@@ -2309,6 +2309,7 @@ dependencies = [
  "toml_edit 0.20.2",
  "uuid",
  "walkdir",
+ "windows-sys 0.61.2",
  "zstd",
 ]
 

@@ -34,6 +34,7 @@ import { Agents } from "./pages/Agents";
 import { Sessions, SessionDetail } from "./pages/Sessions";
 import { Skills } from "./pages/Skills";
 import { LocalTools } from "./pages/LocalTools";
+import { EnvironmentVariables } from "./pages/EnvironmentVariables";
 import { AgentNews } from "./pages/AgentNews";
 import { NewsRecommendations } from "./pages/NewsRecommendations";
 import { useNews } from "./news";
@@ -77,6 +78,7 @@ const navigation: {
   {
     group: "系统",
     items: [
+      { id: "environment", label: "环境变量", icon: Braces },
       { id: "settings", label: "设置", icon: Settings2, key: "5" },
       { id: "sources", label: "数据源", icon: Database },
     ],
@@ -149,6 +151,7 @@ export default function App() {
           window.dispatchEvent(
             new CustomEvent("skills-action", { detail: { action: "refresh" } }),
           );
+        else if (useStore.getState().page === "environment") window.dispatchEvent(new Event("environment-refresh"));
         else if (useStore.getState().page === "local-tools") window.dispatchEvent(new Event("local-tools-refresh"));
         else if (useStore.getState().page === "agent-news") window.dispatchEvent(new Event("agent-news-refresh"));
         else void useStore.getState().refresh();
@@ -293,7 +296,7 @@ export default function App() {
             <strong>{title}</strong>
           </div>
           <div className="top-controls">
-            {page !== "skills" && page !== "local-tools" && page !== "agent-news" && (
+            {page !== "skills" && page !== "local-tools" && page !== "agent-news" && page !== "environment" && (
               <>
                 <div className="segmented range-selector">
                   {[
@@ -343,7 +346,7 @@ export default function App() {
                         detail: { action: "refresh" },
                       }),
                     )
-                  : page === "local-tools" ? window.dispatchEvent(new Event("local-tools-refresh")) : page === "agent-news" ? window.dispatchEvent(new Event("agent-news-refresh")) : void state.refresh()
+                  : page === "environment" ? window.dispatchEvent(new Event("environment-refresh")) : page === "local-tools" ? window.dispatchEvent(new Event("local-tools-refresh")) : page === "agent-news" ? window.dispatchEvent(new Event("agent-news-refresh")) : void state.refresh()
               }
             >
               <RefreshCw size={17} />
@@ -364,7 +367,7 @@ export default function App() {
             </button>
           </div>
         </header>
-        {range === "custom" && page !== "skills" && page !== "local-tools" && page !== "agent-news" && (
+        {range === "custom" && page !== "skills" && page !== "local-tools" && page !== "agent-news" && page !== "environment" && (
           <div className="custom-range">
             <label>
               开始日期
@@ -428,6 +431,8 @@ export default function App() {
             <Skills />
           ) : page === "local-tools" ? (
             <LocalTools />
+          ) : page === "environment" ? (
+            <EnvironmentVariables />
           ) : page === "agent-news" ? (
             <AgentNews />
           ) : page === "sources" ? (
