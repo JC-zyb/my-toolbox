@@ -1,5 +1,6 @@
 use crate::skill_commands::*;
 use crate::local_tool_commands::*;
+use crate::news_commands::*;
 use crate::{
     collection,
     models::{Settings, Snapshot},
@@ -21,6 +22,7 @@ pub(crate) struct AppState {
     rename_plans: Mutex<std::collections::HashMap<String, Vec<RenameRow>>>,
     pub(crate) skills: Mutex<SkillsService>,
     pub(crate) local_tools: Arc<crate::local_tools::LocalToolsService>,
+    pub(crate) news: crate::news::NewsService,
 }
 #[tauri::command]
 fn get_settings(state: State<AppState>) -> Result<Settings, String> {
@@ -188,6 +190,7 @@ pub fn run() {
             let directory = app.path().app_local_data_dir()?;
             std::fs::create_dir_all(&directory)?;
             app.manage(AppState {
+                news: crate::news::NewsService::new(&directory.join("agent-news")).map_err(std::io::Error::other)?,
                 local_tools: Arc::new(crate::local_tools::LocalToolsService::new(
                     directory.join("local-tools"),
                     PathBuf::from(std::env::var("USERPROFILE").or_else(|_|std::env::var("HOME")).map_err(std::io::Error::other)?),
@@ -244,6 +247,14 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
+            get_agent_news,
+            refresh_agent_news,
+            set_agent_news_preferences,
+            set_agent_news_language,
+            translate_agent_news,
+            add_agent_news_source,
+            remove_agent_news_source,
+            preview_agent_news,
             update_settings,
             get_snapshot,
             refresh_usage,

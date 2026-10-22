@@ -54,9 +54,17 @@ fn difference(now: &Usage, previous: &Usage) -> Usage {
 
 pub fn parse_jsonl(path: &Path, source: &Source) -> Result<Vec<Record>> {
     let file = File::open(path).map_err(|e| format!("无法读取 {}：{e}", path.display()))?;
-    let mut reader = BufReader::new(file);
+    let compressed = source.id == "codex"
+        && path.extension().is_some_and(|s| s == "zst" || s == "zstd");
+    let input: Box<dyn Read> = if compressed {
+        Box::new(zstd::stream::read::Decoder::new(file).map_err(|e| format!("无法解压日志：{e}"))?)
+    } else {
+        Box::new(file)
+    };
+    let mut reader = BufReader::new(input);
     let mut bytes = Vec::new();
-    let mut session = path
+    let session_path = if compressed { path.with_extension("") } else { path.to_path_buf() };
+    let mut session = session_path
         .file_stem()
         .unwrap_or_default()
         .to_string_lossy()
@@ -321,7 +329,12 @@ pub fn collect(settings: &Settings, directory: &Path) -> Result<Snapshot> {
                         match entry {
                             Ok(entry)
                                 if entry.file_type().is_file()
-                                    && entry.path().extension().is_some_and(|s| s == "jsonl") =>
+                                    && (entry.path().extension().is_some_and(|s| s == "jsonl")
+                                        || (source.id == "codex"
+                                            && entry.path().file_name().is_some_and(|s| {
+                                                let name = s.to_string_lossy();
+                                                name.ends_with(".jsonl.zst") || name.ends_with(".jsonl.zstd")
+                                            }))) =>
                             {
                                 paths.push(entry.into_path())
                             }
@@ -336,7 +349,6 @@ pub fn collect(settings: &Settings, directory: &Path) -> Result<Snapshot> {
         } else if source.enabled {
             diagnostics.push("数据目录不存在；可在数据源中指定目录".into());
         }
-        let mut source_records = vec![];
         let mut updates = vec![];
         for path in &paths {
             let path_string = path.to_string_lossy().into_owned();
@@ -346,21 +358,16 @@ pub fn collect(settings: &Settings, directory: &Path) -> Result<Snapshot> {
                 meta.len(),
                 meta.modified().map_err(|e| e.to_string())?
             );
-            let cached: Option<(String, String)> = conn
+            let cached: Option<String> = conn
                 .query_row(
-                    "SELECT stamp,records FROM files WHERE path=?1",
+                    "SELECT stamp FROM files WHERE path=?1",
                     params![path_string],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
+                    |r| r.get(0),
                 )
                 .optional()
                 .map_err(|e| e.to_string())?;
-            if let Some((old_stamp, json)) = &cached {
-                if old_stamp == &stamp {
-                    source_records.extend(
-                        serde_json::from_str::<Vec<Record>>(json).map_err(|e| e.to_string())?,
-                    );
-                    continue;
-                }
+            if cached.as_ref() == Some(&stamp) {
+                continue;
             }
             let parsed = if source.id == "dsh" {
                 parse_dsh(path)
@@ -374,7 +381,6 @@ pub fn collect(settings: &Settings, directory: &Path) -> Result<Snapshot> {
                         stamp,
                         serde_json::to_string(&parsed).map_err(|e| e.to_string())?,
                     ));
-                    source_records.extend(parsed);
                 }
                 Err(error) => {
                     if diagnostics.len() < 20 {
@@ -383,12 +389,6 @@ pub fn collect(settings: &Settings, directory: &Path) -> Result<Snapshot> {
                             path.file_name().unwrap_or_default().to_string_lossy()
                         ));
                     }
-                    if let Some((_, json)) = cached {
-                        source_records.extend(
-                            serde_json::from_str::<Vec<Record>>(&json)
-                                .map_err(|e| e.to_string())?,
-                        );
-                    }
                 }
             }
         }
@@ -396,7 +396,9 @@ pub fn collect(settings: &Settings, directory: &Path) -> Result<Snapshot> {
         for (path, stamp, json) in updates {
             tx.execute("INSERT INTO files(path,source,stamp,records) VALUES(?1,?2,?3,?4) ON CONFLICT(path) DO UPDATE SET stamp=excluded.stamp,records=excluded.records,source=excluded.source",params![path,source.id,stamp,json]).map_err(|e|e.to_string())?;
         }
-        if !source.enabled || paths.is_empty() {
+        // 快照包含已采集的历史文件，避免部分日志移除后用量消失。
+        let mut source_records = vec![];
+        {
             let mut stmt = tx
                 .prepare("SELECT records FROM files WHERE source=?1")
                 .map_err(|e| e.to_string())?;
@@ -514,6 +516,132 @@ mod tests {
             executable: String::new(),
             enabled: true,
             version: None,
+        }
+    }
+    fn write_usage(path: &Path, agent: &str, session: &str, input: u64) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let timestamp = "2026-10-12T12:00:00Z";
+        let mut file = File::create(path).unwrap();
+        match agent {
+            "codex" => {
+                writeln!(file, "{}", serde_json::json!({"type":"session_meta","timestamp":timestamp,"payload":{"id":session}})).unwrap();
+                writeln!(file, "{}", serde_json::json!({"type":"event_msg","timestamp":timestamp,"payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":input,"output_tokens":10},"last_token_usage":{"input_tokens":input,"output_tokens":10}}}})).unwrap();
+            }
+            "claude" => {
+                writeln!(file, "{}", serde_json::json!({"type":"assistant","timestamp":timestamp,"sessionId":session,"message":{"id":session,"model":"claude","usage":{"input_tokens":input,"output_tokens":10}}})).unwrap();
+            }
+            "dsh" => {
+                serde_json::to_writer(&mut file, &serde_json::json!({"version":1,"days":{"2026-10-12":{"sessions":[{"id":session,"byProviderModel":{"p:m":{"input":input,"output":10}}}]}}})).unwrap();
+            }
+            _ => panic!("unsupported test source"),
+        }
+    }
+    #[test]
+    fn archived_sessions_are_included_and_moves_do_not_duplicate_usage() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let active = root.path().join("sessions/one.jsonl");
+        let archived = root.path().join("archived_sessions/one.jsonl");
+        write_usage(&active, "codex", "one", 100);
+        write_usage(&root.path().join("archived_sessions/two.jsonl"), "codex", "two", 200);
+        let mut s = source();
+        s.root = root.path().to_string_lossy().into_owned();
+        let settings = Settings { sources: vec![s], ..Settings::default() };
+        let first = collect(&settings, cache.path()).unwrap();
+        assert_eq!(first.records.len(), 2);
+        assert_eq!(first.records.iter().map(|r| r.usage.total()).sum::<u64>(), 320);
+        std::fs::copy(&active, &archived).unwrap();
+        let duplicated = collect(&settings, cache.path()).unwrap();
+        assert_eq!(duplicated.records.len(), 2);
+        assert_eq!(duplicated.records.iter().map(|r| r.usage.total()).sum::<u64>(), 320);
+        std::fs::remove_file(&active).unwrap();
+        write_usage(&archived, "codex", "one", 300);
+        let moved = collect(&settings, cache.path()).unwrap();
+        assert_eq!(moved.records.len(), 2);
+        assert_eq!(moved.records.iter().map(|r| r.usage.total()).sum::<u64>(), 520);
+    }
+    #[test]
+    fn compressed_archives_support_multiple_frames_and_keep_cache_on_corruption() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let active = root.path().join("sessions/one.jsonl");
+        write_usage(&active, "codex", "one", 100);
+        let content = std::fs::read(&active).unwrap();
+        let split = content.len() / 2;
+        let mut compressed = zstd::stream::encode_all(&content[..split], 0).unwrap();
+        compressed.extend(zstd::stream::encode_all(&content[split..], 0).unwrap());
+        let archived = root.path().join("archived_sessions/one.jsonl.zst");
+        std::fs::create_dir_all(archived.parent().unwrap()).unwrap();
+        std::fs::write(&archived, &compressed).unwrap();
+        std::fs::write(root.path().join("archived_sessions/copy.jsonl.zstd"), &compressed).unwrap();
+        let mut s = source();
+        s.root = root.path().to_string_lossy().into_owned();
+        let settings = Settings { sources: vec![s], ..Settings::default() };
+        let first = collect(&settings, cache.path()).unwrap();
+        assert_eq!(first.sources[0].files, 3);
+        assert_eq!(first.records.len(), 1);
+        assert_eq!(first.records[0].usage.total(), 110);
+        std::fs::remove_file(&active).unwrap();
+        let archived_only = collect(&settings, cache.path()).unwrap();
+        assert_eq!(archived_only.records.len(), 1);
+        assert_eq!(archived_only.records[0].usage.total(), 110);
+        std::fs::write(&archived, &compressed[..compressed.len() - 4]).unwrap();
+        assert!(parse_jsonl(&archived, &settings.sources[0]).is_err());
+        let failed = collect(&settings, cache.path()).unwrap();
+        assert_eq!(failed.sources[0].status, "partial");
+        assert_eq!(failed.records[0].usage.total(), 110);
+        assert!(!failed.sources[0].diagnostics.is_empty());
+    }
+    #[test]
+    fn missing_logs_remain_in_history_while_other_logs_are_present() {
+        for agent in ["codex", "claude"] {
+            let root = tempfile::tempdir().unwrap();
+            let cache = tempfile::tempdir().unwrap();
+            let folder = if agent == "codex" { "sessions" } else { "projects" };
+            let removed = root.path().join(folder).join("one.jsonl");
+            let remaining = root.path().join(folder).join("two.jsonl");
+            write_usage(&removed, agent, "one", 100);
+            write_usage(&remaining, agent, "two", 200);
+            let mut s = source();
+            s.id = agent.into();
+            s.root = root.path().to_string_lossy().into_owned();
+            let settings = Settings { sources: vec![s], ..Settings::default() };
+            assert_eq!(collect(&settings, cache.path()).unwrap().records.len(), 2);
+            std::fs::remove_file(&removed).unwrap();
+            write_usage(&remaining, agent, "two", 300);
+            for _ in 0..2 {
+                let snapshot = collect(&settings, cache.path()).unwrap();
+                assert_eq!(snapshot.sources[0].files, 1);
+                assert_eq!(snapshot.records.len(), 2, "{agent}");
+                assert_eq!(snapshot.records.iter().map(|r| r.usage.total()).sum::<u64>(), 420, "{agent}");
+            }
+        }
+    }
+    #[test]
+    fn source_root_changes_keep_collected_history_for_all_agents() {
+        for (agent, relative) in [("codex", "sessions/one.jsonl"), ("claude", "projects/one.jsonl"), ("dsh", "storages/cost-meter/ledger.json")] {
+            let old_root = tempfile::tempdir().unwrap();
+            let new_root = tempfile::tempdir().unwrap();
+            let cache = tempfile::tempdir().unwrap();
+            write_usage(&old_root.path().join(relative), agent, "one", 100);
+            write_usage(&new_root.path().join(relative), agent, "two", 200);
+            let mut s = source();
+            s.id = agent.into();
+            s.root = old_root.path().to_string_lossy().into_owned();
+            let mut settings = Settings { sources: vec![s], ..Settings::default() };
+            assert_eq!(collect(&settings, cache.path()).unwrap().records.len(), 1);
+            settings.sources[0].root = new_root.path().to_string_lossy().into_owned();
+            let snapshot = collect(&settings, cache.path()).unwrap();
+            assert_eq!(snapshot.records.len(), 2, "{agent}");
+            assert_eq!(snapshot.records.iter().map(|r| r.usage.total()).sum::<u64>(), 320, "{agent}");
+            write_usage(&new_root.path().join(relative), agent, "two", 50);
+            let corrected = collect(&settings, cache.path()).unwrap();
+            assert_eq!(corrected.records.len(), 2, "{agent}");
+            assert_eq!(corrected.records.iter().map(|r| r.usage.total()).sum::<u64>(), 170, "{agent}");
+            settings.sources[0].enabled = false;
+            let paused = collect(&settings, cache.path()).unwrap();
+            assert_eq!(paused.sources[0].status, "paused");
+            assert_eq!(paused.records.len(), 2, "{agent}");
         }
     }
     #[test]

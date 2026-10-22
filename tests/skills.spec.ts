@@ -202,11 +202,17 @@ test("创建校验和 GitHub 导入错误不会显示成功", async ({ page }) =
 test("全局 Codex 勾选更新隔离配置并提示重启", async ({ page }) => {
   await page.getByRole("dialog").getByRole("button", { name: "暂不迁移" }).click();
   await page.locator(".skill-card").filter({ hasText: "ui-kit" }).getByRole("button", { name: "查看 ui-kit" }).click();
+  await page.getByRole("button", { name: "展开资讯推荐" }).click();
   const detail = page.getByRole("region", { name: "ui-kit 详情" });
   await expect(detail.getByRole("checkbox", { name: "启用 Codex" })).toBeChecked();
   await detail.getByRole("checkbox", { name: "启用 Codex" }).click();
   await expect(detail.getByRole("checkbox", { name: "启用 Codex" })).not.toBeChecked();
   await expect(detail).toContainText("重启 Codex 后生效");
+  const notification = page.locator("#corner-notifications .skill-toast").last();
+  await expect(notification).toBeVisible();
+  const toastBounds = await notification.boundingBox();
+  const recommendationBounds = await page.locator(".news-recommendations").boundingBox();
+  expect(toastBounds!.y + toastBounds!.height).toBeLessThanOrEqual(recommendationBounds!.y);
   await expect.poll(() => existsSync(join(root, "home/.codex/config.toml"))).toBe(true);
   const config = readFileSync(join(root, "home/.codex/config.toml"), "utf8");
   expect(config).toContain("enabled = false");

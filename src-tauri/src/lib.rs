@@ -3,6 +3,9 @@ pub mod collection;
 pub mod desktop;
 pub mod models;
 pub mod local_tools;
+pub mod news;
+#[cfg(feature = "desktop")]
+mod news_commands;
 #[cfg(feature = "desktop")]
 mod local_tool_commands;
 #[cfg(feature = "desktop")]

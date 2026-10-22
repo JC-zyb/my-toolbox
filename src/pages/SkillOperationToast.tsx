@@ -1,4 +1,5 @@
 import { AlertCircle, CheckCircle2, Info, LoaderCircle, X } from "lucide-react";
+import { createPortal } from "react-dom";
 
 export type SkillToastKind = "pending" | "success" | "error" | "confirm" | "info";
 export interface SkillToastItem {
@@ -11,7 +12,7 @@ export interface SkillToastItem {
 }
 
 export function SkillOperationToast({ items, onDismiss }: { items: SkillToastItem[]; onDismiss: (id: string) => void }) {
-  return <div className="skill-toast-stack" aria-label="Skill 操作通知">
+  const content = <div className="skill-toast-stack" aria-label="Skill 操作通知">
     {items.map(item => {
       const Icon = item.kind === "pending" ? LoaderCircle : item.kind === "success" ? CheckCircle2 : item.kind === "error" ? AlertCircle : Info;
       return <div key={item.id} className={`skill-toast ${item.kind}`} role={item.kind === "error" ? "alert" : "status"}>
@@ -23,4 +24,6 @@ export function SkillOperationToast({ items, onDismiss }: { items: SkillToastIte
       </div>;
     })}
   </div>;
+  const corner = document.getElementById("corner-notifications");
+  return corner ? createPortal(content, corner) : content;
 }

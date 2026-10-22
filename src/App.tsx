@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   ListFilter,
   Moon,
+  Newspaper,
   MoreHorizontal,
   PanelLeftClose,
   Play,
@@ -33,6 +34,9 @@ import { Agents } from "./pages/Agents";
 import { Sessions, SessionDetail } from "./pages/Sessions";
 import { Skills } from "./pages/Skills";
 import { LocalTools } from "./pages/LocalTools";
+import { AgentNews } from "./pages/AgentNews";
+import { NewsRecommendations } from "./pages/NewsRecommendations";
+import { useNews } from "./news";
 import { skillsApi } from "./skills-api";
 import { useStore } from "./store";
 import { bounds, dateTime, filterRecords } from "./stats";
@@ -58,6 +62,7 @@ const navigation: {
       { id: "agents", label: "Agents", icon: Box, key: "2" },
       { id: "sessions", label: "会话", icon: ListFilter, key: "3" },
       { id: "skills", label: "Skills", icon: Braces },
+      { id: "agent-news", label: "Agent 资讯", icon: Newspaper },
     ],
   },
   {
@@ -81,6 +86,15 @@ const pages = navigation.flatMap((g) => g.items);
 type Perform = (fn: () => Promise<unknown>) => void;
 
 export default function App() {
+  useEffect(() => {
+    void useNews.getState().initialize();
+    if (!desktop) return;
+    const refresh = () => void useNews.getState().refresh();
+    const timer = setInterval(refresh, 60_000);
+    window.addEventListener("agent-news-refresh", refreshNews);
+    function refreshNews() { void useNews.getState().refresh(true); }
+    return () => { clearInterval(timer); window.removeEventListener("agent-news-refresh", refreshNews); };
+  }, []);
   const state = useStore();
   const {
     page,
@@ -136,6 +150,7 @@ export default function App() {
             new CustomEvent("skills-action", { detail: { action: "refresh" } }),
           );
         else if (useStore.getState().page === "local-tools") window.dispatchEvent(new Event("local-tools-refresh"));
+        else if (useStore.getState().page === "agent-news") window.dispatchEvent(new Event("agent-news-refresh"));
         else void useStore.getState().refresh();
       }
       const page = (
@@ -278,7 +293,7 @@ export default function App() {
             <strong>{title}</strong>
           </div>
           <div className="top-controls">
-            {page !== "skills" && page !== "local-tools" && (
+            {page !== "skills" && page !== "local-tools" && page !== "agent-news" && (
               <>
                 <div className="segmented range-selector">
                   {[
@@ -328,7 +343,7 @@ export default function App() {
                         detail: { action: "refresh" },
                       }),
                     )
-                  : page === "local-tools" ? window.dispatchEvent(new Event("local-tools-refresh")) : void state.refresh()
+                  : page === "local-tools" ? window.dispatchEvent(new Event("local-tools-refresh")) : page === "agent-news" ? window.dispatchEvent(new Event("agent-news-refresh")) : void state.refresh()
               }
             >
               <RefreshCw size={17} />
@@ -349,7 +364,7 @@ export default function App() {
             </button>
           </div>
         </header>
-        {range === "custom" && page !== "skills" && page !== "local-tools" && (
+        {range === "custom" && page !== "skills" && page !== "local-tools" && page !== "agent-news" && (
           <div className="custom-range">
             <label>
               开始日期
@@ -413,6 +428,8 @@ export default function App() {
             <Skills />
           ) : page === "local-tools" ? (
             <LocalTools />
+          ) : page === "agent-news" ? (
+            <AgentNews />
           ) : page === "sources" ? (
             <Sources perform={perform} />
           ) : page === "settings" ? (
@@ -438,6 +455,10 @@ export default function App() {
             命令面板 <kbd>Ctrl K</kbd>
           </button>
         </footer>
+      </div>
+      <div className="app-corner-stack">
+        <div id="corner-notifications" />
+        <NewsRecommendations onBrowse={() => setPage("agent-news")} />
       </div>
       <CommandPalette
         open={palette}

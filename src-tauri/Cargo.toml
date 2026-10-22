@@ -19,6 +19,10 @@ name = "inspect-usage"
 path = "src/bin/inspect_usage.rs"
 
 [[bin]]
+name = "inspect-agent-news"
+path = "src/bin/inspect_agent_news.rs"
+
+[[bin]]
 name = "skills-fixture"
 path = "src/bin/skills_fixture.rs"
 
@@ -51,9 +55,12 @@ sha2 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 walkdir = "2"
+zstd = { version = "0.13", default-features = false }
 uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "rt-multi-thread", "macros"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "gzip"] }
+feed-rs = "2.3"
+dom_query = "0.28"
 tauri = { version = "2", features = ["tray-icon"], optional = true }
 tauri-plugin-dialog = { version = "2", optional = true }
 tauri-plugin-opener = { version = "2", optional = true }

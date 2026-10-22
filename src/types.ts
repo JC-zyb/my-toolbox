@@ -3,6 +3,7 @@ export type Page =
   | "agents"
   | "sessions"
   | "skills"
+  | "agent-news"
   | "local-tools"
   | "launchers"
   | "rename"
