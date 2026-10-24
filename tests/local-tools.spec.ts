@@ -114,6 +114,7 @@ test("发现、资料补全、筛选、三种尺寸和浅深主题", async ({ pa
     [1440, 900],
     [1920, 1080],
     [853, 480],
+    [375, 480],
   ]) {
     await page.setViewportSize({ width, height });
     expect(
@@ -134,6 +135,13 @@ test("发现、资料补全、筛选、三种尺寸和浅深主题", async ({ pa
   });
   await page.getByRole("button", { name: "返回工具列表" }).click();
   await page.getByRole("button", { name: "工具目录", exact: true }).click();
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await expect(page.getByRole("columnheader", { name: "管理来源" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "状态" })).toBeHidden();
+  await page.setViewportSize({ width: 375, height: 480 });
+  await expect(page.locator(".local-tool-row").first().locator("[data-label='管理来源']")).toBeVisible();
+  await expect(page.locator(".local-tool-row").first().locator("[data-label='状态']")).toBeVisible();
+  await expect(page.locator(".local-tool-row").first().locator("[data-label='版本']")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "查看 Java", exact: true }),
   ).toBeVisible();

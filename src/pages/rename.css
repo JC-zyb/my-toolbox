@@ -1,0 +1,188 @@
+.rename-fields {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+.rename-directory {
+  display: grid;
+  gap: 7px;
+}
+.rename-directory > label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.rename-page .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.rename-page input:not([type="checkbox"]),
+.rename-page select {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+.rename-page .input-action input {
+  width: 0;
+}
+.rename-page .input-action .button {
+  flex: none;
+}
+.rename-checks {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 22px;
+}
+.rename-page .rename-checks label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  color: var(--text);
+  cursor: pointer;
+}
+.rename-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.rename-page > .rename-help {
+  padding: 0 4px;
+}
+.rename-page .danger-text {
+  color: var(--error);
+}
+.rename-numbering {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.rename-options {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.rename-options summary {
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 0;
+}
+.rename-options[open] summary {
+  margin-bottom: 16px;
+}
+.rename-options .rename-help {
+  margin-top: 12px;
+}
+.rename-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0 22px 16px;
+}
+.rename-toolbar select {
+  width: auto;
+}
+.rename-toolbar input:not([type="checkbox"]) {
+  flex: 1;
+  min-width: 160px;
+}
+.rename-path {
+  padding: 0 22px 14px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--muted);
+}
+.rename-page .panel > .rename-help {
+  padding: 0 22px 12px;
+}
+.rename-table table {
+  table-layout: fixed;
+  font-size: 12px;
+}
+.rename-table th {
+  font-size: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.rename-table th:first-child {
+  width: 64px;
+}
+.rename-table th:last-child {
+  width: 22%;
+}
+.rename-table td {
+  overflow-wrap: anywhere;
+  padding: 12px 16px;
+}
+.rename-table th {
+  padding: 12px 16px;
+}
+.rename-table input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+.rename-conflict {
+  background: var(--error-soft);
+}
+.rename-message {
+  margin: 0;
+  padding: 14px 18px;
+  font-size: 13px;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.rename-success {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.rename-confirm-list {
+  max-height: 240px;
+  overflow: auto;
+  padding-left: 20px;
+  margin: 16px 0;
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.rename-confirm-path {
+  overflow-wrap: anywhere;
+  margin-bottom: 12px;
+}
+.rename-page .button-row {
+  flex-wrap: wrap;
+}
+@media (max-width: 650px) {
+  .rename-page .form-grid,
+  .rename-numbering {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rename-toolbar {
+    align-items: stretch;
+  }
+  .rename-table th:first-child {
+    width: 44px;
+  }
+  .rename-table th:last-child {
+    width: 26%;
+  }
+  .rename-table td,
+  .rename-table th {
+    padding: 10px 6px;
+    font-size: 11px;
+  }
+  .rename-page .input-action {
+    flex-wrap: wrap;
+  }
+  .rename-page .input-action input {
+    flex-basis: 100%;
+    width: 100%;
+  }
+  .rename-page .panel-heading {
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+}

@@ -269,6 +269,10 @@ test("推荐中文、停用来源、单条空态及浅深色响应布局", async
   await page.getByRole("button", { name: "中文", exact: true }).click();
   await expect(page.locator(".news-item")).toContainText(["Codex 功能更新", "面向智能体的新模型"]);
   await page.getByRole("button", { name: "用量总览", exact: true }).click();
+  await page.setViewportSize({ width: 375, height: 812 });
+  const collapsedBounds = await dock.boundingBox();
+  expect(collapsedBounds!.width).toBeLessThanOrEqual(56);
+  await expect(dock.getByRole("button", { name: "展开资讯推荐" })).toHaveAttribute("title", "展开资讯推荐");
   await dock.getByRole("button", { name: "展开资讯推荐" }).click();
   await expect(dock.getByRole("button", { name: "播放资讯轮播" })).toBeVisible();
   await expect(dock).toContainText("机器翻译");

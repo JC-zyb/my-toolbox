@@ -13,6 +13,7 @@ test("常见尺寸不溢出，浅深色及命令键盘导航可用", async ({ pa
     [1920, 1080],
     [1024, 576],
     [853, 480],
+    [375, 480],
   ]) {
     await page.setViewportSize({ width, height });
     expect(
@@ -21,6 +22,8 @@ test("常见尺寸不溢出，浅深色及命令键盘导航可用", async ({ pa
       ),
     ).toBe(true);
   }
+  await expect(page.getByRole("navigation").getByRole("button", { name: "用量总览" })).toHaveAttribute("title", "用量总览");
+  expect(await page.getByRole("navigation").evaluate((nav) => nav.scrollHeight > nav.clientHeight)).toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
   if (await page.getByRole("button", { name: "切换浅色主题" }).count())
     await page.getByRole("button", { name: "切换浅色主题" }).click();
@@ -89,8 +92,8 @@ test("真实来源快照的展示与失败保留旧数据", async ({ page }) => 
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.getByText("正在读取本地用量数据…")).toHaveCount(0);
   await expect(page.locator(".source-row")).toHaveCount(3);
-  await expect(page.locator(".metric-value").first()).not.toHaveText("—");
   await page.getByRole("button", { name: "全部", exact: true }).click();
+  await expect(page.locator(".metric-value").first()).not.toHaveText("—");
   await expect(page.locator(".trend-chart svg").first()).toBeVisible();
   await page.screenshot({
     path: join(process.cwd(), "test-results", "workbench-data-light.png"),

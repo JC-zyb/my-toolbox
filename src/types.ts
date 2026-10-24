@@ -270,11 +270,47 @@ export interface SkillOperation {
 export interface RenameRow {
   from: string;
   to: string;
+  fromName: string;
+  toName: string;
   error: string | null;
 }
 export interface RenamePlan {
   id: string;
+  directory: string;
   rows: RenameRow[];
+  occupiedNames: string[];
+  skipped: number;
+}
+export interface RenameRules {
+  mode: "replace" | "template";
+  scope: "stem" | "full" | "extension";
+  find: string;
+  replace: string;
+  regex: boolean;
+  caseSensitive: boolean;
+  replaceAll: boolean;
+  prefix: string;
+  suffix: string;
+  letterCase: "keep" | "lower" | "upper";
+  trim: boolean;
+  template: string;
+  start: number;
+  step: number;
+  padding: number;
+  nameFilter: string;
+  extensions: string;
+  includeHidden: boolean;
+  sort: "natural" | "name" | "modified";
+  descending: boolean;
+}
+export interface RenameUndo {
+  id: string;
+  count: number;
+  directory: string;
+}
+export interface RenameResult {
+  count: number;
+  undo: RenameUndo;
 }
 export interface ScriptResult {
   id: string;

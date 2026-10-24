@@ -60,7 +60,7 @@ export function NewsRecommendations({ onBrowse }: { onBrowse: () => void }) {
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); move(event.key === "ArrowLeft" ? -1 : 1); }
       if (event.key === "Escape") { setExpanded(false); event.currentTarget.querySelector<HTMLButtonElement>(".news-recommendation-toggle")?.focus(); }
     }}>
-      <button className="news-recommendation-toggle" aria-label={expanded ? "收起资讯推荐" : "展开资讯推荐"} aria-expanded={expanded} aria-controls="news-recommendation-panel" onClick={() => setExpanded(value => !value)}>
+      <button className="news-recommendation-toggle" aria-label={expanded ? "收起资讯推荐" : "展开资讯推荐"} title={expanded ? "收起资讯推荐" : "展开资讯推荐"} aria-expanded={expanded} aria-controls="news-recommendation-panel" onClick={() => setExpanded(value => !value)}>
         <Newspaper size={17} aria-hidden="true" /><span>资讯推荐</span><span className="news-recommendation-count">{busy && !item ? "更新中" : `${recommendations.length} 条`}</span>{expanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronUp size={16} aria-hidden="true" />}
       </button>
       <div id="news-recommendation-panel" hidden={!expanded} className="news-recommendation-panel" role="region" aria-roledescription="轮播" aria-label="近期资讯精选">

@@ -238,27 +238,9 @@ pub fn custom_source(name: &str, address: &str, group: &str) -> Result<NewsSourc
     {
         return Err("仅支持不含凭据的公开 HTTPS 地址".into());
     }
+    super::network::validate_public_https_url(&url)
+        .map_err(|_| "订阅地址必须是公开网站".to_string())?;
     let host = url.host_str().unwrap_or_default();
-    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") {
-        return Err("订阅地址必须是公开网站".into());
-    }
-    // URL 库将 IP 字面值解析为统一格式，避免接受本地回环或私有地址。
-    if let Ok(ip) = host.trim_matches(['[', ']']).parse::<std::net::IpAddr>() {
-        let local = match ip {
-            std::net::IpAddr::V4(ip) => {
-                ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified()
-            }
-            std::net::IpAddr::V6(ip) => {
-                ip.is_loopback()
-                    || ip.is_unspecified()
-                    || ip.is_unique_local()
-                    || ip.is_unicast_link_local()
-            }
-        };
-        if local {
-            return Err("订阅地址必须是公开网站".into());
-        }
-    }
     if host.eq_ignore_ascii_case("github.com") {
         let parts: Vec<_> = url.path().trim_matches('/').split('/').collect();
         if parts.len() == 2

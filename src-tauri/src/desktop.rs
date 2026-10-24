@@ -5,8 +5,12 @@ use crate::news_commands::*;
 use crate::{
     collection,
     models::{Settings, Snapshot},
+    rename::{
+        ApplyResult as RenameResult, Plan as RenamePlan, RenameService,
+        Request as RenameRequest, UndoInfo,
+    },
     skills::SkillsService,
-    tools::{self, RenamePlan, RenameRow, ScriptResult},
+    tools::{self, ScriptResult},
 };
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -20,7 +24,7 @@ use tauri_plugin_opener::OpenerExt;
 pub(crate) struct AppState {
     directory: PathBuf,
     collection_lock: Arc<Mutex<()>>,
-    rename_plans: Mutex<std::collections::HashMap<String, Vec<RenameRow>>>,
+    rename: Arc<Mutex<RenameService>>,
     pub(crate) skills: Mutex<SkillsService>,
     pub(crate) local_tools: Arc<crate::local_tools::LocalToolsService>,
     pub(crate) news: crate::news::NewsService,
@@ -135,36 +139,48 @@ fn export_csv(path: String, content: String) -> Result<(), String> {
     }
     std::fs::write(path, content).map_err(|e| e.to_string())
 }
-#[tauri::command]
-fn rename_preview(
-    directory: String,
-    find: String,
-    replace: String,
-    prefix: String,
-    suffix: String,
-    state: State<AppState>,
-) -> Result<RenamePlan, String> {
-    let plan = tools::preview(
-        std::path::Path::new(&directory),
-        &find,
-        &replace,
-        &prefix,
-        &suffix,
-    )?;
-    let mut plans = state.rename_plans.lock().map_err(|e| e.to_string())?;
-    plans.clear();
-    plans.insert(plan.id.clone(), plan.rows.clone());
-    Ok(plan)
+// 扫描与文件移动在阻塞线程串行执行，避免大量文件使桌面窗口失去响应。
+async fn rename_task<T: Send + 'static>(
+    state: State<'_, AppState>,
+    action: impl FnOnce(&mut RenameService) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let service = state.rename.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut service = service.lock().map_err(|e| e.to_string())?;
+        action(&mut service)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-fn rename_apply(id: String, state: State<AppState>) -> Result<usize, String> {
-    let rows = state
-        .rename_plans
-        .lock()
-        .map_err(|e| e.to_string())?
-        .remove(&id)
-        .ok_or("预览已失效，请重新预览")?;
-    tools::apply(&rows)
+async fn rename_preview(
+    request: RenameRequest,
+    state: State<'_, AppState>,
+) -> Result<RenamePlan, String> {
+    rename_task(state, move |service| service.preview(request)).await
+}
+#[tauri::command]
+async fn rename_apply(
+    id: String,
+    selected: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<RenameResult, String> {
+    rename_task(state, move |service| service.apply(&id, &selected)).await
+}
+#[tauri::command]
+async fn rename_history(state: State<'_, AppState>) -> Result<Option<UndoInfo>, String> {
+    rename_task(state, |service| Ok(service.undo_info())).await
+}
+#[tauri::command]
+async fn rename_undo_preview(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<RenamePlan, String> {
+    rename_task(state, move |service| service.undo_preview(&id)).await
+}
+#[tauri::command]
+async fn rename_undo(id: String, state: State<'_, AppState>) -> Result<usize, String> {
+    rename_task(state, move |service| service.undo(&id)).await
 }
 #[tauri::command]
 async fn run_script(id: String, state: State<'_, AppState>) -> Result<ScriptResult, String> {
@@ -198,7 +214,7 @@ pub fn run() {
                 ).map_err(std::io::Error::other)?),
                 directory,
                 collection_lock: Arc::new(Mutex::new(())),
-                rename_plans: Mutex::new(std::collections::HashMap::new()),
+                rename: Arc::new(Mutex::new(RenameService::default())),
                 skills: Mutex::new(
                     SkillsService::new(
                         app.path().app_local_data_dir()?.join("skills"),
@@ -267,6 +283,9 @@ pub fn run() {
             export_csv,
             rename_preview,
             rename_apply,
+            rename_history,
+            rename_undo_preview,
+            rename_undo,
             run_script,
             list_local_tools,
             scan_local_tools,

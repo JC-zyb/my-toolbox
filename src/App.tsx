@@ -37,6 +37,7 @@ import { LocalTools } from "./pages/LocalTools";
 import { EnvironmentVariables } from "./pages/EnvironmentVariables";
 import { AgentNews } from "./pages/AgentNews";
 import { NewsRecommendations } from "./pages/NewsRecommendations";
+import { Rename as RenamePage } from "./pages/Rename";
 import { useNews } from "./news";
 import { skillsApi } from "./skills-api";
 import { useStore } from "./store";
@@ -44,7 +45,6 @@ import { bounds, dateTime, filterRecords } from "./stats";
 import type {
   LaunchEntry,
   Page,
-  RenamePlan,
   Script,
   ScriptResult,
   SourceStatus,
@@ -237,6 +237,7 @@ export default function App() {
                   key={id}
                   className={`nav-item ${page === id ? "selected" : ""}`}
                   aria-label={label}
+                  title={label}
                   aria-current={page === id ? "page" : undefined}
                   onClick={() => setPage(id)}
                 >
@@ -440,7 +441,7 @@ export default function App() {
           ) : page === "settings" ? (
             <SettingsPage perform={perform} theme={theme} />
           ) : page === "rename" ? (
-            <Rename perform={perform} />
+            <RenamePage />
           ) : page === "scripts" ? (
             <Scripts perform={perform} />
           ) : (
@@ -1234,169 +1235,6 @@ function Launchers({ perform }: { perform: Perform }) {
             </div>
           </form>
         )}
-      </Modal>
-    </div>
-  );
-}
-
-function Rename({ perform }: { perform: Perform }) {
-  const [directory, setDirectory] = useState(""),
-    [find, setFind] = useState(""),
-    [replace, setReplace] = useState(""),
-    [prefix, setPrefix] = useState(""),
-    [suffix, setSuffix] = useState(""),
-    [plan, setPlan] = useState<RenamePlan | null>(null),
-    [confirm, setConfirm] = useState(false);
-  useEffect(() => setPlan(null), [directory, find, replace, prefix, suffix]);
-  const changed = plan?.rows.filter((r) => r.from !== r.to) ?? [];
-  return (
-    <div className="page-flow">
-      <Intro
-        eyebrow="先看结果，再改变文件"
-        title="批量改名"
-        description="处理目录中的文件，保留扩展名，自动检查覆盖与重名。"
-      />
-      <Panel title="改名规则" subtitle="仅处理选定目录下的文件，不递归子目录">
-        <div className="form-stack">
-          <label>
-            目标目录
-            <div className="input-action">
-              <input
-                value={directory}
-                onChange={(e) => setDirectory(e.target.value)}
-                placeholder="选择一个目录"
-              />
-              <button
-                className="button"
-                onClick={() =>
-                  perform(async () => {
-                    const paths = await chooseFile(true);
-                    if (paths) setDirectory(paths[0]);
-                  })
-                }
-              >
-                <FolderOpen size={16} />
-                选择目录
-              </button>
-            </div>
-          </label>
-          <div className="form-grid">
-            {[
-              ["查找", find, setFind],
-              ["替换为", replace, setReplace],
-              ["前缀", prefix, setPrefix],
-              ["后缀", suffix, setSuffix],
-            ].map(([label, value, setter]) => (
-              <label key={String(label)}>
-                {String(label)}
-                <input
-                  value={String(value)}
-                  onChange={(e) =>
-                    (setter as (v: string) => void)(e.target.value)
-                  }
-                />
-              </label>
-            ))}
-          </div>
-          <div className="button-row">
-            <button
-              className="button primary"
-              disabled={!directory}
-              onClick={() =>
-                perform(async () =>
-                  setPlan(
-                    await command<RenamePlan>("rename_preview", {
-                      directory,
-                      find,
-                      replace,
-                      prefix,
-                      suffix,
-                    }),
-                  ),
-                )
-              }
-            >
-              <Search size={16} />
-              生成预览
-            </button>
-            <span className="muted">预览不会修改文件</span>
-          </div>
-        </div>
-      </Panel>
-      <Panel
-        title="改名预览"
-        subtitle={
-          plan
-            ? `${plan.rows.length} 个文件 · ${changed.length} 个待改变`
-            : "规则改变后需要重新预览"
-        }
-        action={
-          <button
-            className="button"
-            disabled={!changed.length || plan?.rows.some((r) => r.error)}
-            onClick={() => setConfirm(true)}
-          >
-            应用改名
-          </button>
-        }
-      >
-        {plan ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>原名称</th>
-                  <th>新名称</th>
-                  <th>检查</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.rows.map((r) => (
-                  <tr key={r.from}>
-                    <td>{r.from.split(/[\\/]/).at(-1)}</td>
-                    <td>{r.to.split(/[\\/]/).at(-1)}</td>
-                    <td className={r.error ? "danger-text" : "muted"}>
-                      {r.error ?? (r.from === r.to ? "无变化" : "可以改名")}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <Empty
-            title="预览你的文件名"
-            description="选择目录并设置规则，检查结果后应用。"
-          />
-        )}
-      </Panel>
-      <Modal
-        open={confirm}
-        onClose={() => setConfirm(false)}
-        title="确认应用改名"
-        description={`将改变 ${changed.length} 个文件名；请确认上方预览。`}
-      >
-        <p>执行前会重新检查文件与目标。出现失败时尝试回滚并报告结果。</p>
-        <div className="modal-actions">
-          <button className="button" onClick={() => setConfirm(false)}>
-            取消
-          </button>
-          <button
-            className="button primary"
-            onClick={() =>
-              perform(async () => {
-                const count = await command<number>("rename_apply", {
-                  id: plan!.id,
-                });
-                setPlan(null);
-                setConfirm(false);
-                useStore.setState({ notice: `已完成 ${count} 个文件改名` });
-              })
-            }
-          >
-            确认改名
-          </button>
-        </div>
       </Modal>
     </div>
   );

@@ -114,18 +114,23 @@ impl NewsService {
                     .map(|item| (source, item))
             })
             .ok_or("资讯已失效或订阅已暂停")?;
+        let public_page = Url::parse(&url)
+            .is_ok_and(|url| super::network::validate_public_https_url(&url).is_ok());
         let hash = translation::fingerprint(item);
-        let cached: Option<String> = self
-            .connection
-            .lock()
-            .map_err(|e| e.to_string())?
-            .query_row(
-                "SELECT payload FROM news_previews WHERE url = ?1 AND hash = ?2",
-                params![url, hash],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
+        let cached: Option<String> = if public_page {
+            self.connection
+                .lock()
+                .map_err(|e| e.to_string())?
+                .query_row(
+                    "SELECT payload FROM news_previews WHERE url = ?1 AND hash = ?2",
+                    params![url, hash],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?
+        } else {
+            None
+        };
         let mut preview = if let Some(payload) = cached {
             serde_json::from_str::<NewsPreview>(&payload)
                 .map_err(|e| format!("预览缓存损坏：{e}"))?
@@ -143,12 +148,19 @@ impl NewsService {
             };
             // 订阅正文已足够阅读时直接预览，只在摘要很短时读取公开网页。
             if fallback.chars().count() < 300 {
-                match page_excerpt(&self.client, &url).await {
-                    Ok(content) => {
-                        preview.content = content;
-                        preview.kind = "web".into();
+                if public_page {
+                    match page_excerpt(&self.client, &url).await {
+                        Ok(content) => {
+                            preview.content = content;
+                            preview.kind = "web".into();
+                        }
+                        Err(error) => {
+                            preview.diagnostic = Some(format!("{error}；当前展示订阅摘要"))
+                        }
                     }
-                    Err(error) => preview.diagnostic = Some(format!("{error}；当前展示订阅摘要")),
+                } else {
+                    preview.diagnostic =
+                        Some("原文链接不是公开 HTTPS 页面；当前展示订阅摘要".into());
                 }
             }
             preview
@@ -248,6 +260,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn private_article_links_ignore_cached_web_content() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = NewsService::new(directory.path()).unwrap();
+        let mut snapshot = service.snapshot().unwrap();
+        let article = NewsItem {
+            url: "https://127.0.0.1/private".into(),
+            title: "内网文章".into(),
+            summary: "订阅摘要仍可阅读。".into(),
+            category: "technology".into(),
+            published_at: None,
+            translation: None,
+        };
+        snapshot.sources[0].items = vec![article.clone()];
+        service.save(&snapshot).unwrap();
+        let cached = NewsPreview {
+            url: article.url.clone(),
+            title: article.title.clone(),
+            source_name: snapshot.sources[0].name.clone(),
+            content: "旧版缓存中的内网页面内容".into(),
+            translated_content: None,
+            kind: "web".into(),
+            diagnostic: None,
+            fetched_at: Utc::now(),
+        };
+        service
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO news_previews VALUES(?1, ?2, ?3)",
+                params![
+                    article.url,
+                    translation::fingerprint(&article),
+                    serde_json::to_string(&cached).unwrap()
+                ],
+            )
+            .unwrap();
+
+        let preview = service
+            .preview_with_endpoint(article.url, "http://127.0.0.1:1")
+            .await
+            .unwrap();
+        assert_eq!(preview.kind, "feed");
+        assert_eq!(preview.content, "订阅摘要仍可阅读。");
+        assert!(preview
+            .diagnostic
+            .as_deref()
+            .is_some_and(|value| value.contains("公开 HTTPS")));
+    }
+
+    #[tokio::test]
     async fn extracts_article_text_and_excludes_navigation() {
         let html = format!("<html><body><nav>navigation</nav><article><h1>Agent</h1><p>{}</p><script>bad()</script></article></body></html>", "A useful agent supports planning and tool use. ".repeat(10));
         let (url, thread) =
@@ -313,15 +376,14 @@ mod tests {
         assert!(failed.translated_content.is_none());
         assert!(failed.content.contains("Changed release notes."));
 
-        let (url, thread) = super::super::tests::server("403 Forbidden", "blocked", "");
         snapshot.language = "original".into();
+        let url = "https://127.0.0.1/private".to_string();
         snapshot.sources[0].items[0].url = url.clone();
         snapshot.sources[0].items[0].summary = "Short excerpt".into();
         service.save(&snapshot).unwrap();
         let fallback = service.preview(url).await.unwrap();
-        thread.join().unwrap();
         assert_eq!(fallback.content, "Short excerpt");
         assert_eq!(fallback.kind, "feed");
-        assert!(fallback.diagnostic.unwrap().contains("403"));
+        assert!(fallback.diagnostic.unwrap().contains("公开 HTTPS"));
     }
 }

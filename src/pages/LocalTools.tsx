@@ -833,17 +833,19 @@ export function LocalTools() {
                       onClick={() => selectTool(value)}
                       aria-label={`查看 ${value.name}`}
                     >
-                      <span>
+                      <span data-label="工具">
                         <strong>{value.name}</strong>
                         <small>{value.description}</small>
                       </span>
-                      <span className="mono">
+                      <span className="mono" data-label="版本">
+                        <small className="local-tool-mobile-label">版本</small>
                         {resolved?.version || "未安装"}
                         {items.length > 1 && (
                           <small>{items.length} 个入口</small>
                         )}
                       </span>
-                      <span>
+                      <span data-label="管理来源">
+                        <small className="local-tool-mobile-label">管理来源</small>
                         {[
                           ...new Set(items.map((i) => i.provider || "待核实")),
                         ].join(" / ") ||
@@ -852,7 +854,9 @@ export function LocalTools() {
                       </span>
                       <span
                         className={`local-tool-state ${items.some((i) => i.diagnostic) ? "failed" : ""}`}
+                        data-label="状态"
                       >
+                        <small className="local-tool-mobile-label">状态</small>
                         {items.some((i) => i.diagnostic)
                           ? "探测异常"
                           : items.some((i) => i.provider)

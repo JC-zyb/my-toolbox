@@ -2,7 +2,12 @@ use chrono::{DateTime, Utc};
 use reqwest::{header, Client, StatusCode, Url};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, path::Path, sync::Mutex, time::Duration};
+use std::{
+    collections::HashSet,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::{sync::Mutex as AsyncMutex, task::JoinSet};
 
 const REFRESH_SECONDS: i64 = 30 * 60;
@@ -10,6 +15,7 @@ const MAX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ITEMS: usize = 100;
 
 mod catalog;
+mod network;
 mod preview;
 mod translation;
 pub use catalog::catalog;
@@ -96,7 +102,8 @@ impl NewsService {
                 .user_agent("MyToolbox/0.1 AgentNews RSS Reader")
                 .timeout(Duration::from_secs(20))
                 .https_only(true)
-                .redirect(reqwest::redirect::Policy::limited(5))
+                .redirect(network::redirect_policy())
+                .dns_resolver(Arc::new(network::PublicResolver))
                 .build()
                 .map_err(|e| e.to_string())?,
         })

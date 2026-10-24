@@ -15,3 +15,4 @@ mod local_tool_commands;
 mod skill_commands;
 pub mod skills;
 pub mod tools;
+pub mod rename;

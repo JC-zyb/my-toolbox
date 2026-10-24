@@ -219,6 +219,13 @@ kbd {
   padding: 28px 16px 16px;
   z-index: 20;
 }
+.sidebar nav {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
 .brand {
   display: flex;
   align-items: center;
@@ -465,7 +472,11 @@ kbd {
 main {
   padding: 30px 32px 28px;
   flex: 1;
-  outline: none !important;
+  outline: none;
+}
+main:focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: -4px;
 }
 .page-flow {
   display: flex;
